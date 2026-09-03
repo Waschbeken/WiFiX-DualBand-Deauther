@@ -5,14 +5,47 @@ Eine kleine Windows-11-App für den **XMG Neo 16 (E25)**, mit der du per
 
 | Profil | Wann | Was passiert |
 |---|---|---|
-| 🎮 **Gaming** | Zuhause an der Steckdose | Maximale CPU-Leistung, Bildschirm/Standby bleiben aus, WLAN auf höchste Leistung, Helligkeit 100 % |
-| ⚖️ **Ausgeglichen** | Standard | Windows-Standardschema ("Ausbalanciert"), Helligkeit 60 % |
-| 🔋 **Unterwegs** | Akku soll möglichst lange halten | CPU gedrosselt, Bildschirm/Standby schalten früh ab, WLAN im Sparmodus, Helligkeit 35 % |
+| 🎮 **Gaming** | Zuhause an der Steckdose | Maximale CPU-Leistung, Bildschirm/Standby bleiben aus, WLAN auf höchste Leistung, Helligkeit 100 %, **240 Hz**, **dedizierte GPU aktiv** |
+| ⚖️ **Ausgeglichen** | Standard | Windows-Standardschema ("Ausbalanciert"), Helligkeit 60 %, Bildwiederholrate/GPU bleiben unverändert |
+| 🔋 **Unterwegs** | Akku soll möglichst lange halten | CPU gedrosselt, Bildschirm/Standby schalten früh ab, WLAN im Sparmodus, Helligkeit 35 %, **60 Hz**, **dedizierte GPU wird deaktiviert (nur integrierte Grafik)** |
 
 Kein Zusatzprogramm nötig – die App besteht nur aus PowerShell-Skripten,
 die bereits in Windows 11 enthaltene Bordmittel nutzen (`powercfg`,
-Bildschirmhelligkeit über WMI). Es wird nichts aus dem Internet
-nachgeladen und keine Fremdsoftware installiert.
+Bildschirmhelligkeit über WMI, `pnputil` für die GPU, die native
+Windows-Anzeige-API für die Bildwiederholrate). Es wird nichts aus dem
+Internet nachgeladen und keine Fremdsoftware installiert.
+
+## GPU-Umschaltung (nur integrierte Grafik im Unterwegs-Profil)
+
+Im Profil "Unterwegs" wird die dedizierte GPU (NVIDIA, bzw. AMD bei der
+A-Modellvariante) automatisch über den Geräte-Manager deaktiviert
+(`pnputil /disable-device`) – danach läuft der Laptop nur noch mit der
+integrierten Intel-Grafik, was spürbar Akku spart. Beim Wechsel zurück
+auf "Gaming" wird die dedizierte GPU automatisch wieder aktiviert.
+
+Da Grafiktreiber ihre Ressourcen oft erst nach einem Neustart vollständig
+freigeben, fragt die App beim Deaktivieren per Dialog nach, ob **jetzt in
+60 Sekunden neu gestartet** werden soll (abbrechbar mit `shutdown /a` in
+einer Konsole, oder einfach "Nein" wählen und später manuell neu
+starten). Ein automatischer Neustart ohne Rückfrage findet **nie** statt,
+damit keine ungespeicherte Arbeit verloren geht.
+
+> **Hinweis:** Das funktioniert zuverlässig, solange der Laptop im
+> BIOS im normalen Optimus/Hybrid-Grafikmodus läuft (Werkseinstellung
+> beim XMG Neo 16) – dort ist die integrierte Grafik fest mit dem
+> internen Display verbunden. Falls im BIOS stattdessen "dGPU only"
+> eingestellt ist, bitte diese Funktion **nicht** nutzen, da sonst das
+> Bild schwarz bleiben könnte.
+
+## Bildwiederholrate (240 Hz / 60 Hz)
+
+Die App stellt die Bildwiederholrate des internen Displays direkt über
+die Windows-eigene Anzeige-API um – ohne Neustart, ohne Zusatzprogramm.
+"Gaming" schaltet auf 240 Hz, "Unterwegs" auf 60 Hz (spart zusätzlich
+Akku). Falls dein Panel keine 240 Hz unterstützt oder ein externer
+Monitor als Hauptbildschirm eingestellt ist, meldet die App das per
+Warnung in der Konsole, ohne das Umschalten der übrigen Einstellungen zu
+verhindern.
 
 ## Was die App NICHT steuert
 
@@ -67,6 +100,12 @@ Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PROCTHROTTLEMA
 ```
 
 anpassen (`-Dc 60` = 60 % im Akkubetrieb).
+
+Die Bildwiederholrate steht direkt bei den Aufrufen `Set-RefreshRate
+-Hertz 240` bzw. `-Hertz 60`. Welche GPU als "dediziert" erkannt wird,
+lässt sich in `Get-DiscreteGpuDevice` über das Namensmuster
+(`NVIDIA|Radeon RX|...`) anpassen, falls z. B. die AMD-Modellvariante des
+Neo 16 verwendet wird.
 
 ## Deinstallation
 

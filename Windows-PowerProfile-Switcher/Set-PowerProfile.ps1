@@ -28,6 +28,78 @@ function E {
     try { [char]::ConvertFromUtf32($CodePoint) } catch { '' }
 }
 
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+
+# P/Invoke-Hilfsklasse zum Setzen der Bildwiederholrate ueber die
+# Windows-eigene ChangeDisplaySettingsEx-API (kein Zusatzprogramm noetig).
+if (-not ('PowerProfileSwitcher.DisplayHelper' -as [type])) {
+    Add-Type -Namespace PowerProfileSwitcher -Name DisplayHelper -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential)]
+public struct DEVMODE {
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+    public short dmSpecVersion;
+    public short dmDriverVersion;
+    public short dmSize;
+    public short dmDriverExtra;
+    public int dmFields;
+    public int dmPositionX;
+    public int dmPositionY;
+    public int dmDisplayOrientation;
+    public int dmDisplayFixedOutput;
+    public short dmColor;
+    public short dmDuplex;
+    public short dmYResolution;
+    public short dmTTOption;
+    public short dmCollate;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+    public short dmLogPixels;
+    public int dmBitsPerPel;
+    public int dmPelsWidth;
+    public int dmPelsHeight;
+    public int dmDisplayFlags;
+    public int dmDisplayFrequency;
+    public int dmICMMethod;
+    public int dmICMIntent;
+    public int dmMediaType;
+    public int dmDitherType;
+    public int dmReserved1;
+    public int dmReserved2;
+    public int dmPanningWidth;
+    public int dmPanningHeight;
+}
+
+[DllImport("user32.dll", CharSet = CharSet.Auto)]
+public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
+
+[DllImport("user32.dll", CharSet = CharSet.Auto)]
+public static extern int ChangeDisplaySettingsEx(string deviceName, ref DEVMODE devMode, IntPtr hwnd, int dwflags, IntPtr lParam);
+
+public const int ENUM_CURRENT_SETTINGS = -1;
+public const int CDS_UPDATEREGISTRY = 0x01;
+public const int DM_DISPLAYFREQUENCY = 0x400000;
+
+public static int SetRefreshRate(int frequency) {
+    DEVMODE dm = new DEVMODE();
+    dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+    if (!EnumDisplaySettings(null, ENUM_CURRENT_SETTINGS, ref dm)) {
+        return -999;
+    }
+    dm.dmDisplayFrequency = frequency;
+    dm.dmFields = DM_DISPLAYFREQUENCY;
+    return ChangeDisplaySettingsEx(null, ref dm, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
+}
+
+public static int GetCurrentRefreshRate() {
+    DEVMODE dm = new DEVMODE();
+    dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+    if (!EnumDisplaySettings(null, ENUM_CURRENT_SETTINGS, ref dm)) {
+        return -1;
+    }
+    return dm.dmDisplayFrequency;
+}
+'@ -UsingNamespace System.Runtime.InteropServices -ErrorAction SilentlyContinue
+}
+
 $StateDir  = Join-Path $env:LOCALAPPDATA 'PowerProfileSwitcher'
 $StateFile = Join-Path $StateDir 'schemes.json'
 if (-not (Test-Path $StateDir)) {
@@ -134,6 +206,86 @@ function Set-Brightness {
     }
 }
 
+function Set-RefreshRate {
+    param([int]$Hertz)
+    try {
+        $current = [PowerProfileSwitcher.DisplayHelper]::GetCurrentRefreshRate()
+        if ($current -eq $Hertz) {
+            Write-Info "Bildwiederholrate ist bereits $Hertz Hz."
+            return
+        }
+        $result = [PowerProfileSwitcher.DisplayHelper]::SetRefreshRate($Hertz)
+        if ($result -eq 0) {
+            Write-Info "Bildwiederholrate auf $Hertz Hz gesetzt."
+        } else {
+            Write-Warning "Bildwiederholrate $Hertz Hz wird vom Monitor/Treiber nicht unterstuetzt (Code $result)."
+        }
+    } catch {
+        Write-Warning "Bildwiederholrate konnte nicht geaendert werden: $_"
+    }
+}
+
+# Findet die dedizierte GPU (NVIDIA/AMD) unter den Anzeigegeraeten - die
+# integrierte Intel-Grafik wird bewusst ausgeschlossen und nie angefasst.
+function Get-DiscreteGpuDevice {
+    try {
+        Get-PnpDevice -Class Display -PresentOnly -ErrorAction Stop |
+            Where-Object { $_.FriendlyName -match 'NVIDIA|Radeon RX|Radeon Pro|Radeon\s*\d{3,4}' } |
+            Select-Object -First 1
+    } catch {
+        return $null
+    }
+}
+
+# Aktiviert/deaktiviert die dedizierte GPU per pnputil (Bordmittel, kein
+# Zusatzprogramm). Beim Deaktivieren wird ein Neustart vorgeschlagen, da
+# der Grafiktreiber die Ressourcen sonst oft erst nach einem Reboot
+# vollstaendig freigibt.
+function Set-DiscreteGpuState {
+    param([Parameter(Mandatory = $true)][bool]$Enable)
+
+    $gpu = Get-DiscreteGpuDevice
+    if (-not $gpu) {
+        Write-Warning 'Keine dedizierte GPU gefunden - GPU-Umschaltung wird uebersprungen.'
+        return
+    }
+
+    if ($Enable -and $gpu.Status -eq 'OK') {
+        Write-Info "Dedizierte GPU ist bereits aktiv: $($gpu.FriendlyName)"
+        return
+    }
+    if (-not $Enable -and $gpu.Status -ne 'OK') {
+        Write-Info "Dedizierte GPU ist bereits deaktiviert: $($gpu.FriendlyName)"
+        return
+    }
+
+    $verb = if ($Enable) { '/enable-device' } else { '/disable-device' }
+    Write-Info "$(if ($Enable) { 'Aktiviere' } else { 'Deaktiviere' }) dedizierte GPU: $($gpu.FriendlyName) ..."
+
+    $output = & pnputil.exe $verb $gpu.InstanceId 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "pnputil meldete einen Fehler beim Umschalten der GPU: $output"
+        return
+    }
+
+    if (-not $Enable -and -not $NoNotify) {
+        try {
+            Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+            $answer = [System.Windows.Forms.MessageBox]::Show(
+                "Die dedizierte Grafikkarte wurde deaktiviert - es ist nur noch die integrierte Grafik aktiv.`n`nFuer volle Wirkung (maximale Akkulaufzeit) wird ein Neustart empfohlen.`n`nJetzt in 60 Sekunden neu starten? ('shutdown /a' bricht ab)",
+                'PowerProfile Switcher - Neustart empfohlen',
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Question
+            )
+            if ($answer -eq [System.Windows.Forms.DialogResult]::Yes) {
+                shutdown.exe /r /t 60 /c 'PowerProfile Switcher: Neustart fuer GPU-Umschaltung (nur integrierte Grafik)'
+            }
+        } catch {
+            Write-Warning 'Neustart-Abfrage konnte nicht angezeigt werden (keine interaktive Sitzung).'
+        }
+    }
+}
+
 function Show-Notification {
     param([string]$Title, [string]$Message)
     if ($NoNotify) { return }
@@ -187,8 +339,10 @@ switch ($Mode) {
 
         powercfg /setactive $guid 2>&1 | Out-Null
         Set-Brightness -Percent 100
+        Set-RefreshRate -Hertz 240
+        Set-DiscreteGpuState -Enable $true
 
-        Show-Notification -Title "$(E 0x1F3AE) Gaming-Profil aktiv" -Message "Hoechstleistung: CPU voll frei, Bildschirm bleibt an, WLAN auf maximale Leistung."
+        Show-Notification -Title "$(E 0x1F3AE) Gaming-Profil aktiv" -Message "Hoechstleistung: CPU voll frei, 240 Hz, dedizierte GPU aktiv, WLAN auf maximale Leistung."
         Write-Info "Profil 'Gaming' aktiviert."
     }
 
@@ -224,8 +378,10 @@ switch ($Mode) {
 
         powercfg /setactive $guid 2>&1 | Out-Null
         Set-Brightness -Percent 35
+        Set-RefreshRate -Hertz 60
+        Set-DiscreteGpuState -Enable $false
 
-        Show-Notification -Title "$(E 0x1F50B) Unterwegs-Profil aktiv" -Message "Akku sparen: CPU gedrosselt, Bildschirm gedimmt, WLAN im Sparmodus."
+        Show-Notification -Title "$(E 0x1F50B) Unterwegs-Profil aktiv" -Message "Akku sparen: CPU gedrosselt, 60 Hz, nur integrierte Grafik, Bildschirm gedimmt, WLAN im Sparmodus."
         Write-Info "Profil 'Travel' aktiviert."
     }
 }
