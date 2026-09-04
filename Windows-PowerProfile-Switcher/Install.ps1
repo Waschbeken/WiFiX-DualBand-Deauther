@@ -37,7 +37,8 @@ $UserId     = "$env:USERDOMAIN\$env:USERNAME"
 Write-Info "Installiere nach $InstallDir ..."
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
-foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 'Uninstall.ps1') {
+foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 'Profiles.ps1',
+                  'Test-PowerProfile.ps1', 'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 
@@ -76,6 +77,20 @@ foreach ($p in $profiles) {
     Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $taskSettings `
         -Description "PowerProfile Switcher: Profil '$p' aktivieren" | Out-Null
 }
+
+# --- Zusatzaufgabe fuer das automatische Umschalten ---------------------
+# Gleiches Profil, aber ohne GPU-Umschaltung: beim Ausstecken des Netzteils
+# soll nicht jedes Mal die Neustart-Abfrage der GPU-Deaktivierung kommen.
+$noGpuTaskName = 'PowerProfileSwitcher-Travel-NoGpu'
+Write-Info "Richte geplante Aufgabe '$noGpuTaskName' ein ..."
+Unregister-ScheduledTask -TaskName $noGpuTaskName -Confirm:$false -ErrorAction SilentlyContinue
+
+$noGpuAction = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$SetProfileScript`" -Mode Travel -SkipGpu"
+$noGpuPrincipal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Highest
+
+Register-ScheduledTask -TaskName $noGpuTaskName -Action $noGpuAction -Principal $noGpuPrincipal `
+    -Settings $taskSettings -Description 'PowerProfile Switcher: Unterwegs ohne GPU-Umschaltung (automatischer Wechsel)' | Out-Null
 
 # --- Geplante Aufgabe fuer das Tray-Icon (startet bei Anmeldung, keine Admin-Rechte noetig) ---
 $trayTaskName = 'PowerProfileSwitcher-Tray'

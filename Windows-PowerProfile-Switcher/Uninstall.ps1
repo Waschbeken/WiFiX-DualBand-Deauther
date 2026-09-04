@@ -34,7 +34,8 @@ Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 # --- Geplante Aufgaben entfernen ----------------------------------------
-foreach ($task in 'PowerProfileSwitcher-Gaming', 'PowerProfileSwitcher-Balanced', 'PowerProfileSwitcher-Travel', 'PowerProfileSwitcher-Tray') {
+foreach ($task in 'PowerProfileSwitcher-Gaming', 'PowerProfileSwitcher-Balanced', 'PowerProfileSwitcher-Travel',
+                  'PowerProfileSwitcher-Travel-NoGpu', 'PowerProfileSwitcher-Tray') {
     Write-Info "Entferne geplante Aufgabe '$task' ..."
     Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
 }

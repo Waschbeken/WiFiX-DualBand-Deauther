@@ -85,6 +85,55 @@ Einschränkungen, die man kennen sollte:
 - Die Messwerte pro Profil liegen in
   `%LOCALAPPDATA%\PowerProfileSwitcher\metrics.json`.
 
+**Langzeit-Verlauf:** Zusätzlich schreibt das Tray-Icon jeden Messpunkt
+(alle 15 s) nach `power-log.csv` – mit Zeit, Profil, Watt und Ladestand.
+Die Detailansicht zeigt daraus den **echten Durchschnittsverbrauch je
+Profil über die gesamte Nutzungsdauer** samt Anzahl der Messungen. Das
+ist deutlich belastbarer als die kurze Messung direkt nach dem
+Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
+automatisch gekürzt, sobald sie 2 MB überschreitet.
+
+## Automatik, Hotkeys & Diagnose
+
+**Automatisch umschalten** (standardmäßig **aus**, im Tray-Menü
+aktivierbar): Netzteil abgezogen → Unterwegs, Netzteil angeschlossen →
+Gaming. Erkannt wird das über den 15-Sekunden-Takt des Tray-Icons, der
+Wechsel erfolgt also spätestens 15 s nach dem Um-/Ausstecken.
+Die **GPU-Abschaltung bleibt dabei bewusst außen vor** (eigene Aufgabe
+`PowerProfileSwitcher-Travel-NoGpu` mit `-SkipGpu`), damit nicht bei
+jedem Ausstecken eine Neustart-Abfrage kommt. Willst du die dedizierte
+GPU wirklich abschalten, wähle „Unterwegs" einmal von Hand.
+
+**Hotkeys** – funktionieren auch im Vollbild-Spiel:
+
+| Tastenkombination | Profil |
+|---|---|
+| `Strg+Alt+1` | Gaming |
+| `Strg+Alt+2` | Ausgeglichen |
+| `Strg+Alt+3` | Unterwegs |
+
+Ist eine Kombination schon von einem anderen Programm belegt, wird sie
+übersprungen und das in `tray.log` vermerkt – die übrigen funktionieren
+weiter.
+
+**Akku-Warnung**: Bei 20 % und 10 % Restladung meldet sich das Tray-Icon
+mit der geschätzten Restlaufzeit beim aktuellen Verbrauch.
+
+**Diagnose** (Tray-Menü → „Diagnose ausfuehren"): `Test-PowerProfile.ps1`
+liest mit `powercfg /query` **zurück, welche Einstellungen auf deinem
+Gerät tatsächlich angekommen sind**, und listet Soll- gegen Ist-Werte
+mit Status `OK` / `ABWEICHUNG` / `NICHT UNTERSTUETZT`. Dazu kommen:
+mögliche Bildwiederholraten deines Panels, erkannte Grafikkarten samt
+Status, Akku-Zustand und ob die Verbrauchsmessung funktioniert, sowie der
+Zustand aller geplanten Aufgaben. Der Bericht landet in
+`%LOCALAPPDATA%\PowerProfileSwitcher\diagnose.txt` und öffnet sich im
+Editor.
+
+Damit kannst du direkt nachsehen, ob z. B. `PERFEPP` oder `CPMAXCORES`
+auf deiner CPU wirklich greifen – falls dort `NICHT UNTERSTUETZT` steht,
+ist das kein Fehler, sondern heißt nur, dass dein Gerät diesen Regler
+nicht anbietet.
+
 ## Spar- und Boost-Optionen im Detail
 
 Diese Werte setzt die App pro Profil, jeweils getrennt für Netzbetrieb
@@ -195,10 +244,12 @@ damit die geplante Aufgabe mit den neuen Einstellungen neu angelegt wird.
 ## Anpassen
 
 Alle konkreten Werte (CPU-Grenzen, Zeiten bis Bildschirm/Standby,
-Helligkeit, WLAN-Sparmodus) stehen gesammelt in `Set-PowerProfile.ps1` in
-den drei `switch`-Blöcken (`Gaming`, `Balanced`, `Travel`). Werte dort
-anpassen und anschließend `Install.ps1` erneut ausführen, damit die
-geplanten Aufgaben die aktualisierte Datei verwenden.
+Helligkeit, Bildwiederholrate, GPU, WLAN-Sparmodus) stehen gesammelt in
+**`Profiles.ps1`** – eine Zeile pro Einstellung mit Klartext-Label sowie
+`Ac`- und `Dc`-Wert. Werte dort anpassen und anschließend `Install.ps1`
+erneut ausführen, damit die geplanten Aufgaben die aktualisierte Datei
+verwenden. Mit der Diagnose lässt sich danach prüfen, ob die neuen Werte
+angekommen sind.
 
 Beispiel: Wenn dir 60 % maximale CPU-Leistung im Profil "Unterwegs" zu
 wenig ist, einfach den Wert bei
@@ -231,6 +282,12 @@ gelöscht.
   laufen und sich gegenseitig überschreiben.
 - `PowerMetrics.ps1` enthält die Mess-Funktionen (Watt, Restlaufzeit,
   Akku-Zustand) und wird von beiden Skripten eingebunden.
+- `Profiles.ps1` enthält die Soll-Werte aller drei Profile an **einer**
+  Stelle – sowohl das Setzen (`Set-PowerProfile.ps1`) als auch das Prüfen
+  (`Test-PowerProfile.ps1`) benutzt genau diese Liste, damit Soll und Ist
+  nicht auseinanderlaufen. Werte ändern → `Install.ps1` erneut ausführen.
+- `Test-PowerProfile.ps1` erzeugt den Diagnose-Bericht (ohne Adminrechte
+  lauffähig).
 - `Install.ps1` legt drei geplante Aufgaben (Taskplaner) mit
   **"Mit höchsten Rechten ausführen"** an. Windows erlaubt es, eine so
   konfigurierte Aufgabe ohne erneuten UAC-Dialog auszulösen (sofern das

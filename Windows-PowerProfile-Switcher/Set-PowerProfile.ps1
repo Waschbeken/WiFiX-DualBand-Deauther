@@ -18,7 +18,15 @@ param(
     [ValidateSet('Gaming', 'Balanced', 'Travel')]
     [string]$Mode,
 
-    [switch]$NoNotify
+    [switch]$NoNotify,
+
+    # Laesst die dedizierte GPU unangetastet - wird vom automatischen
+    # Umschalten benutzt, damit beim Ausstecken des Netzteils nicht jedes
+    # Mal eine Neustart-Abfrage aufpoppt.
+    [switch]$SkipGpu,
+
+    # Laesst die Bildwiederholrate unveraendert.
+    [switch]$SkipDisplay
 )
 
 $ErrorActionPreference = 'Continue'
@@ -110,6 +118,9 @@ if (-not (Test-Path $StateDir)) {
 $MetricsScript = Join-Path $PSScriptRoot 'PowerMetrics.ps1'
 $MetricsAvailable = Test-Path $MetricsScript
 if ($MetricsAvailable) { . $MetricsScript }
+
+# Profil-Definitionen (Sollwerte) einbinden.
+. (Join-Path $PSScriptRoot 'Profiles.ps1')
 
 # --------------------------------------------------------------------------
 # Hilfsfunktionen
@@ -337,11 +348,6 @@ function Show-Notification {
     }
 }
 
-# GUIDs fuer "Wireless Adapter Settings" -> "Power Saving Mode".
-# 0 = Maximale Leistung, 1 = Niedrige Einsparung, 2 = Mittlere Einsparung, 3 = Maximale Einsparung
-$WirelessSubGroup = '19cbb8fa-5279-450e-9fac-8a3d5fedd0c1'
-$WirelessSetting  = '12bbebe6-58d6-4636-95bb-3217ef867c1a'
-
 # --------------------------------------------------------------------------
 # Profile anwenden
 # --------------------------------------------------------------------------
@@ -359,120 +365,41 @@ try {
     $mutexHeld = $false
 }
 
-switch ($Mode) {
+$def = $ProfileDefinitions[$Mode]
 
-    'Gaming' {
-        $guid = Get-OrCreateScheme -Key 'Gaming' -BaseSchemeAlias 'SCHEME_MIN' -FriendlyName 'XMG Gaming (Hoechstleistung)'
+if ($def.UseBaseDirectly) {
+    # Windows-Standardschema unveraendert verwenden (dient als 'Reset')
+    $guid = $def.BaseScheme
+} else {
+    $guid = Get-OrCreateScheme -Key $Mode -BaseSchemeAlias $def.BaseScheme -FriendlyName $def.FriendlyName
+}
 
-        # Prozessor: volle Leistung, kein Herunterdrosseln im Leerlauf, aggressives Boosten
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PROCTHROTTLEMIN -Ac 100 -Dc 20
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PROCTHROTTLEMAX -Ac 100 -Dc 100
+foreach ($s in $def.Settings) {
+    Set-PowerValue -SchemeGuid $guid -SubGroup $s.SubGroup -Setting $s.Setting -Ac $s.Ac -Dc $s.Dc
+}
 
-        # Turbo/Boost: 2 = Aggressiv (0=Aus, 1=Ein, 2=Aggressiv, 3/4 = effiziente Varianten)
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PERFBOOSTMODE -Ac 2 -Dc 1
-        # Boost-Bereitschaft in Prozent - wie schnell/oft der Turbo greift
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PERFBOOSTPOL  -Ac 100 -Dc 60
+powercfg /setactive $guid 2>&1 | Out-Null
 
-        # EPP (Energy Performance Preference, moderne Intel-CPUs): 0 = maximale
-        # Leistung, 100 = maximale Effizienz. Wirkt staerker als die reine
-        # Prozent-Drosselung und ist der Regler hinter Windows' Leistungs-Schieber.
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR `
-            -Setting @('PERFEPP', '36687f9e-e3a5-4dbf-b1dc-15eb381c6863') -Ac 0 -Dc 25
+if ($def.Brightness -gt 0) { Set-Brightness -Percent $def.Brightness }
 
-        # Core Parking: im Netzbetrieb alle Kerne wach halten (kein Aufweck-Ruckler)
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting CPMINCORES -Ac 100 -Dc 20
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting CPMAXCORES -Ac 100 -Dc 100
-
-        # Festplatte / Anzeige / Energiesparen: beim Spielen nichts abschalten (Netzbetrieb)
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_DISK  -Setting DISKIDLE      -Ac 0 -Dc 600
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_VIDEO -Setting VIDEOIDLE     -Ac 0 -Dc 600
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_SLEEP -Setting STANDBYIDLE   -Ac 0 -Dc 1200
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_SLEEP -Setting HIBERNATEIDLE -Ac 0 -Dc 1800
-
-        # Aufwachtimer erlaubt (z.B. geplante Updates/Backups) - 1 = Ein
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_SLEEP -Setting RTCWAKE -Ac 1 -Dc 1
-
-        # Windows-Energiesparmodus erst spaet automatisch zuschalten (bei 20 %)
-        Set-PowerValue -SchemeGuid $guid -SubGroup @('SUB_ENERGYSAVER', 'de830923-a562-41af-a086-e622ac0d2c1d') `
-            -Setting ESBATTTHRESHOLD -Ac 0 -Dc 20
-
-        # PCIe / USB: keine Sparmassnahmen, die Latenz/FPS kosten koennten
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PCIEXPRESS -Setting ASPM              -Ac 0 -Dc 1
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_USB        -Setting USBSELECTSUSPEND  -Ac 0 -Dc 1
-
-        # WLAN auf maximale Leistung (wichtig fuer Online-Gaming / Ping)
-        Set-PowerValue -SchemeGuid $guid -SubGroup $WirelessSubGroup -Setting $WirelessSetting -Ac 0 -Dc 1
-
-        powercfg /setactive $guid 2>&1 | Out-Null
-        Set-Brightness -Percent 100
-        Set-RefreshRate -Hertz 240
-        Set-DiscreteGpuState -Enable $true
-
-        Show-Notification -Title "$(E 0x1F3AE) Gaming-Profil aktiv" -Message "Hoechstleistung: CPU voll frei, Turbo aggressiv, 240 Hz, dedizierte GPU aktiv, WLAN auf maximale Leistung."
-        Write-Info "Profil 'Gaming' aktiviert."
-    }
-
-    'Balanced' {
-        # Bewusst unveraendertes Windows-Standardschema - dient als 'Reset'.
-        powercfg /setactive SCHEME_BALANCED 2>&1 | Out-Null
-        Set-Brightness -Percent 60
-
-        Show-Notification -Title "$(E 0x2696) Ausgeglichenes Profil aktiv" -Message "Windows-Standardeinstellungen (Ausbalanciert)."
-        Write-Info "Profil 'Balanced' aktiviert."
-    }
-
-    'Travel' {
-        $guid = Get-OrCreateScheme -Key 'Travel' -BaseSchemeAlias 'SCHEME_MAX' -FriendlyName 'XMG Unterwegs (Akku sparen)'
-
-        # Prozessor drosseln, um Akku zu schonen und Waerme/Luefterlaerm zu reduzieren
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PROCTHROTTLEMIN -Ac 5  -Dc 5
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PROCTHROTTLEMAX -Ac 100 -Dc 60
-
-        # Turbo/Boost im Akkubetrieb komplett aus - spart am meisten Strom
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PERFBOOSTMODE -Ac 1  -Dc 0
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PERFBOOSTPOL  -Ac 50 -Dc 0
-
-        # EPP: im Akkubetrieb maximale Energieeffizienz
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR `
-            -Setting @('PERFEPP', '36687f9e-e3a5-4dbf-b1dc-15eb381c6863') -Ac 50 -Dc 100
-
-        # Core Parking: im Akkubetrieb bis zur Haelfte der Kerne schlafen legen
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting CPMINCORES -Ac 10  -Dc 5
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting CPMAXCORES -Ac 100 -Dc 50
-
-        # Bildschirm/Standby zuegig abschalten
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_DISK  -Setting DISKIDLE      -Ac 600 -Dc 180
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_VIDEO -Setting VIDEOIDLE     -Ac 300 -Dc 120
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_SLEEP -Setting STANDBYIDLE   -Ac 900 -Dc 300
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_SLEEP -Setting HIBERNATEIDLE -Ac 1800 -Dc 900
-
-        # Keine Aufwachtimer im Akkubetrieb - der Laptop soll in der Tasche
-        # nicht von selbst aufwachen (haeufigster Grund fuer leeren Akku + Hitze)
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_SLEEP -Setting RTCWAKE -Ac 1 -Dc 0
-
-        # Windows-Energiesparmodus im Akkubetrieb dauerhaft aktiv (Schwelle 100 %),
-        # aber ohne zusaetzliches Abdunkeln - die Helligkeit setzt das Skript selbst
-        Set-PowerValue -SchemeGuid $guid -SubGroup @('SUB_ENERGYSAVER', 'de830923-a562-41af-a086-e622ac0d2c1d') `
-            -Setting ESBATTTHRESHOLD -Ac 0 -Dc 100
-        Set-PowerValue -SchemeGuid $guid -SubGroup @('SUB_ENERGYSAVER', 'de830923-a562-41af-a086-e622ac0d2c1d') `
-            -Setting ESBRIGHTNESS -Ac 100 -Dc 100
-
-        # PCIe / USB: maximale Sparmassnahmen
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PCIEXPRESS -Setting ASPM             -Ac 1 -Dc 2
-        Set-PowerValue -SchemeGuid $guid -SubGroup SUB_USB        -Setting USBSELECTSUSPEND -Ac 1 -Dc 1
-
-        # WLAN auf maximale Energieeinsparung
-        Set-PowerValue -SchemeGuid $guid -SubGroup $WirelessSubGroup -Setting $WirelessSetting -Ac 2 -Dc 3
-
-        powercfg /setactive $guid 2>&1 | Out-Null
-        Set-Brightness -Percent 35
-        Set-RefreshRate -Hertz 60
-        Set-DiscreteGpuState -Enable $false
-
-        Show-Notification -Title "$(E 0x1F50B) Unterwegs-Profil aktiv" -Message "Akku sparen: CPU gedrosselt, Turbo aus, 60 Hz, nur integrierte Grafik, Energiesparmodus an, WLAN im Sparmodus."
-        Write-Info "Profil 'Travel' aktiviert."
+if ($def.Hertz -gt 0) {
+    if ($SkipDisplay) {
+        Write-Info 'Bildwiederholrate bleibt unveraendert (-SkipDisplay).'
+    } else {
+        Set-RefreshRate -Hertz $def.Hertz
     }
 }
+
+if ($null -ne $def.DiscreteGpu) {
+    if ($SkipGpu) {
+        Write-Info 'GPU-Umschaltung uebersprungen (-SkipGpu).'
+    } else {
+        Set-DiscreteGpuState -Enable $def.DiscreteGpu
+    }
+}
+
+Show-Notification -Title "$(E $def.NotifyIcon) $($def.DisplayName) aktiv" -Message $def.NotifyText
+Write-Info "Profil '$Mode' aktiviert."
 
 Save-CurrentMode -ModeName $Mode
 
