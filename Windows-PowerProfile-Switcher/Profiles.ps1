@@ -20,7 +20,7 @@
 
 # Versionsnummer dieser Fassung - wird von Update-PowerProfile.ps1 mit der
 # Version im GitHub-Repository verglichen. Bei Aenderungen hochzaehlen.
-$PowerProfileVersion = '1.7.1'
+$PowerProfileVersion = '1.8.0'
 
 # Mindest-Ladestand fuer das Gaming-Profil: Liegt der Akku darunter, wird
 # Gaming NICHT aktiviert (auch nicht am Netzteil) - so laedt der Akku bei

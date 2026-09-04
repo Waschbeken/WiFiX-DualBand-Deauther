@@ -41,8 +41,23 @@ foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 
                   'Test-PowerProfile.ps1', 'New-PowerReport.ps1', 'Update-PowerProfile.ps1',
                   'Test-PowerPerformance.ps1', 'Show-PowerSettings.ps1', 'PowerBench.ps1',
                   'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Watchdog-Tray.ps1',
-                  'Uninstall.ps1') {
+                  'PowerDisplay.ps1', 'Reset-PowerProfile.ps1', 'Show-PowerStatus.ps1',
+                  'Backup-PowerConfig.ps1', 'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
+}
+
+# Einmalig die urspruenglichen Energieeinstellungen sichern, bevor die App
+# ueberhaupt etwas anfasst. Wiederherstellen spaeter mit powercfg /import.
+$backupFile = Join-Path $InstallDir 'backup-original-scheme.pow'
+if (-not (Test-Path $backupFile)) {
+    try {
+        powercfg /export "$backupFile" SCHEME_CURRENT 2>&1 | Out-Null
+        if (Test-Path $backupFile) {
+            Write-Info "Urspruengliche Energieeinstellungen gesichert: $backupFile"
+        }
+    } catch {
+        Write-Warning 'Die urspruenglichen Energieeinstellungen konnten nicht gesichert werden.'
+    }
 }
 
 $SetProfileScript = Join-Path $InstallDir 'Set-PowerProfile.ps1'

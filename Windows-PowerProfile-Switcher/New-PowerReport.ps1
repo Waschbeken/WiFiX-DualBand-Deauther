@@ -350,6 +350,47 @@ foreach ($d in $byDay) {
 [void]$html.AppendLine('</tbody></table></div>')
 [void]$html.AppendLine('</div>')
 
+# --- Standby-Verluste ----------------------------------------------------
+$standbyCsv = Join-Path $StateDir 'standby-log.csv'
+if (Test-Path $standbyCsv) {
+    try {
+        $standbyRows = @()
+        foreach ($row in (Import-Csv -Path $standbyCsv -Delimiter ';')) {
+            try {
+                $standbyRows += [pscustomobject]@{
+                    Ende     = [datetime]::ParseExact($row.Ende, 'yyyy-MM-dd HH:mm:ss', $Invariant)
+                    Stunden  = [double]::Parse($row.Stunden, $Invariant)
+                    Verlust  = [int]$row.ProzentVerlust
+                    ProStd   = [double]::Parse($row.ProzentProStunde, $Invariant)
+                }
+            } catch { }
+        }
+
+        if ($standbyRows.Count -gt 0) {
+            $standbyRows = $standbyRows | Sort-Object Ende -Descending
+            $avgPerHour = [Math]::Round((($standbyRows | Measure-Object ProStd -Average).Average), 2)
+
+            [void]$html.AppendLine('<div class="card">')
+            [void]$html.AppendLine('<h2>Akkuverlust im Standby</h2>')
+            [void]$html.AppendLine('<div class="scroll"><table><thead><tr><th>Aufgewacht am</th><th>Dauer</th><th>Verlust</th><th>je Stunde</th></tr></thead><tbody>')
+            foreach ($r in ($standbyRows | Select-Object -First 15)) {
+                [void]$html.AppendLine(("<tr><td>{0}</td><td>{1:N1} h</td><td>{2} %</td><td>{3:N2} %/h</td></tr>" -f `
+                    $r.Ende.ToString('dd.MM.yyyy HH:mm'), $r.Stunden, $r.Verlust, $r.ProStd))
+            }
+            [void]$html.AppendLine('</tbody></table></div>')
+
+            $projection = ''
+            if ($avgPerHour -gt 0) {
+                $nightLoss = [int][Math]::Round($avgPerHour * 8)
+                $projection = " Bei diesem Schnitt kostet eine Nacht (8 h) etwa <strong>$nightLoss %</strong> Akku."
+            }
+            [void]$html.AppendLine(("<p class=`"note`">Durchschnitt: {0:N2} % pro Stunde Standby.{1} Gemessen wird die Luecke zwischen zwei Messpunkten - Modern Standby zieht auf vielen Laptops mehr, als man erwartet.</p>" -f `
+                $avgPerHour, $projection))
+            [void]$html.AppendLine('</div>')
+        }
+    } catch { }
+}
+
 # --- Akku-Gesundheitsverlauf ---------------------------------------------
 $healthCsv = Join-Path $StateDir 'battery-health.csv'
 if (Test-Path $healthCsv) {

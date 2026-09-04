@@ -197,8 +197,21 @@ function Save-CurrentMode {
         }
 
         $currentFile = Join-Path $StateDir 'current.json'
+
+        # Bisheriges Profil merken, damit das Tray-Menue "Zurueck zu ..."
+        # anbieten kann.
+        $previous = $null
+        if (Test-Path $currentFile) {
+            try {
+                $old = Get-Content $currentFile -Raw | ConvertFrom-Json
+                if ($old.Mode -and $old.Mode -ne $ModeName) { $previous = $old.Mode }
+                elseif ($old.PSObject.Properties.Name -contains 'Previous') { $previous = $old.Previous }
+            } catch { }
+        }
+
         [pscustomobject]@{
             Mode         = $ModeName
+            Previous     = $previous
             Timestamp    = (Get-Date).ToString('o')
             StartPercent = $startPercent
         } | ConvertTo-Json | Set-Content -Path $currentFile -Encoding UTF8

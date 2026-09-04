@@ -95,6 +95,65 @@ ist deutlich belastbarer als die kurze Messung direkt nach dem
 Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
 automatisch gekürzt, sobald sie 2 MB überschreitet.
 
+## Notfall-Reset & Sicherung
+
+Tray-Menü → **„Alles zuruecksetzen (Notfall)"**. Dreht in einem Rutsch
+alles zurück, was die App am System geändert haben kann:
+
+- dedizierte GPU wieder aktivieren
+- pausierte Hintergrunddienste wieder starten
+- Energieschema auf „Ausbalanciert"
+- Helligkeit 80 %, höchste verfügbare Bildwiederholrate
+- auf Nachfrage zusätzlich: eigene Energieschemata und Anpassungen löschen
+
+Am Ende zeigt ein Fenster, was erledigt wurde und was nicht ging. Deine
+Messdaten bleiben erhalten.
+
+Ergänzend sichert `Install.ps1` **einmalig vor der ersten Änderung** dein
+damals aktives Energieschema per `powercfg /export` nach
+`%LOCALAPPDATA%\PowerProfileSwitcher\backup-original-scheme.pow`.
+Zurückspielen bei Bedarf:
+
+```powershell
+powercfg /import "%LOCALAPPDATA%\PowerProfileSwitcher\backup-original-scheme.pow"
+```
+
+## Systemzustand & Vorschau
+
+Tray-Menü → **„Systemzustand & Vorschau"** zeigt den **tatsächlichen**
+Ist-Zustand statt der Sollwerte: aktives Schema, aktuelle Auflösung und
+Hz (plus alle verfügbaren Frequenzen), Helligkeit, GPU-Status, welche
+Dienste gerade pausiert sind, Stromquelle und Verbrauch.
+
+Darunter steht pro Profil, **was ein Klick konkret ändern würde** – etwa
+*„240 → 60 Hz, Helligkeit 100 → 35 %, GPU wird abgeschaltet
+(Neustart-Abfrage)"*. Fordert ein Profil eine Frequenz, die dein Panel
+gar nicht anbietet, steht das ausdrücklich dabei. Der Text lässt sich mit
+einem Klick in die Zwischenablage kopieren.
+
+## Akkuverlust im Standby
+
+Der Tray tickt alle 15 Sekunden. Ist die Lücke zwischen zwei Messungen
+größer als vier Minuten, war der Laptop im Standby – daraus berechnet die
+App, wie viel Akku das gekostet hat, und meldet beim Aufwachen z. B.
+*„8,2 Stunden Standby haben 6 % Akku gekostet (0,73 % pro Stunde)."*
+
+Die Werte landen in `standby-log.csv` und im Verbrauchs-Bericht als
+Tabelle samt Hochrechnung („eine Nacht kostet etwa 6 %"). Modern Standby
+zieht auf vielen Laptops deutlich mehr als erwartet – das ist oft der
+wahre Grund, warum der Akku morgens leerer ist.
+
+## Kleinigkeiten für den Alltag
+
+- **„Zurueck zum vorherigen Profil"** im Menü – erscheint nur, wenn es
+  ein voriges gibt
+- **`Strg+Alt+P`** schaltet durch alle Profile durch (ein gesperrtes
+  Gaming-Profil wird übersprungen)
+- **Konfiguration sichern / wiederherstellen** – packt Anpassungen und
+  alle Messdaten in eine ZIP-Datei, für Neuinstallation oder einen
+  zweiten Rechner. Vor dem Wiederherstellen legt die App automatisch eine
+  Sicherheitskopie des aktuellen Stands an.
+
 ## Automatische Kalibrierung der CPU-Grenze
 
 Tray-Menü → **„CPU-Grenze kalibrieren (Akkubetrieb)"**. Statt einen Wert
@@ -238,7 +297,7 @@ du, läuft das mitgelieferte `Install.ps1` (einmal UAC-Abfrage), danach
 startet das Tray-Icon neu. Ohne Bestätigung passiert nichts, und
 heruntergeladene Dateien werden anschließend wieder gelöscht.
 
-Aktuelle Version: **1.7.1**
+Aktuelle Version: **1.8.0**
 
 ## Profil-Laufzeit im Menü
 
@@ -295,6 +354,7 @@ GPU wirklich abschalten, wähle „Unterwegs" einmal von Hand.
 | `Strg+Alt+2` | Ausgeglichen |
 | `Strg+Alt+3` | Unterwegs |
 | `Strg+Alt+4` | Video / Streaming |
+| `Strg+Alt+P` | nächstes Profil (durchschalten) |
 
 Ist eine Kombination schon von einem anderen Programm belegt, wird sie
 übersprungen und das in `tray.log` vermerkt – die übrigen funktionieren

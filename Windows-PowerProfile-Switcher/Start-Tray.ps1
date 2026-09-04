@@ -31,6 +31,7 @@ $CurrentFile = Join-Path $StateDir 'current.json'
 $SettingsFile= Join-Path $StateDir 'settings.json'
 $LogCsv      = Join-Path $StateDir 'power-log.csv'
 $HealthCsv   = Join-Path $StateDir 'battery-health.csv'
+$StandbyCsv  = Join-Path $StateDir 'standby-log.csv'
 $LogFile     = Join-Path $StateDir 'tray.log'
 if (-not (Test-Path $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
 
@@ -249,6 +250,34 @@ $MaxDrawSamples = 8
 $LastOnAc       = $null
 $WarnedLevels   = @()
 $PendingGaming  = $false   # Gaming beim Anstecken gewuenscht, aber Akku noch zu leer
+$LastTickTime    = Get-Date
+$LastTickPercent = -1
+$LastStandbyText = ''
+
+function Get-PreviousMode {
+    $state = Get-CurrentState
+    if ($state -and $state.PSObject.Properties.Name -contains 'Previous') { return $state.Previous }
+    return $null
+}
+
+# Reihenfolge fuer das Durchschalten per Hotkey.
+$ProfileOrder = @('Gaming', 'Balanced', 'Travel', 'Video')
+
+function Invoke-NextProfile {
+    $current = Get-CurrentMode
+    $index = [Array]::IndexOf($ProfileOrder, $current)
+    for ($step = 1; $step -le $ProfileOrder.Count; $step++) {
+        $next = $ProfileOrder[(($index + $step) % $ProfileOrder.Count)]
+        # Gesperrtes Gaming-Profil beim Durchschalten ueberspringen
+        if ($next -eq 'Gaming') {
+            $reading = $null
+            if ($MetricsAvailable) { $reading = Get-BatteryReading }
+            if (-not (Test-GamingAllowed -Reading $reading)) { continue }
+        }
+        Invoke-Profile -Name $next
+        return
+    }
+}
 
 function Invoke-Profile {
     param(
@@ -313,6 +342,53 @@ function Write-BatteryHealth {
             $Reading.DesignWh.ToString($Invariant),
             $Reading.CycleCount) | Add-Content -Path $HealthCsv -Encoding UTF8
     } catch { }
+}
+
+# Erkennt Schlafphasen daran, dass zwischen zwei Messungen deutlich mehr
+# Zeit vergangen ist als der 15-Sekunden-Takt - waehrend Standby laeuft der
+# Timer nicht. Daraus laesst sich ausrechnen, wie viel Akku der Standby
+# gekostet hat (Modern Standby zieht auf vielen Laptops erstaunlich viel).
+function Test-StandbyGap {
+    param($Reading)
+
+    $now = Get-Date
+    $gapMinutes = ($now - $script:LastTickTime).TotalMinutes
+    $previousPercent = $script:LastTickPercent
+
+    $script:LastTickTime = $now
+    if ($Reading) { $script:LastTickPercent = $Reading.Percent }
+
+    # Unter 4 Minuten ist es der normale Takt (oder eine kurze Verzoegerung).
+    if ($gapMinutes -lt 4) { return }
+    if (-not $Reading -or $previousPercent -lt 0) { return }
+
+    $hours = [Math]::Round($gapMinutes / 60.0, 2)
+    $lost  = $previousPercent - $Reading.Percent
+
+    if ($lost -le 0) {
+        # Im Standby geladen - interessant, aber kein Verlust.
+        Write-TrayLog ("Standby erkannt: {0:N2} h, dabei geladen ({1} % -> {2} %)." -f $hours, $previousPercent, $Reading.Percent)
+        return
+    }
+
+    $perHour = 0.0
+    if ($hours -gt 0) { $perHour = [Math]::Round($lost / $hours, 2) }
+
+    $script:LastStandbyText = ('{0} - {1:N1} h Standby, {2} % verbraucht ({3:N2} %/h)' -f `
+        $now.ToString('dd.MM. HH:mm'), $hours, $lost, $perHour)
+    Write-TrayLog "Standby ausgewertet: $script:LastStandbyText"
+
+    try {
+        if (-not (Test-Path $StandbyCsv)) {
+            'Ende;Stunden;ProzentVerlust;ProzentProStunde' | Set-Content -Path $StandbyCsv -Encoding UTF8
+        }
+        ('{0};{1};{2};{3}' -f $now.ToString('yyyy-MM-dd HH:mm:ss'),
+            $hours.ToString($Invariant), $lost, $perHour.ToString($Invariant)) |
+            Add-Content -Path $StandbyCsv -Encoding UTF8
+    } catch { }
+
+    Show-Balloon -Title "$(E 0x1F4A4) Standby ausgewertet" `
+        -Text ('{0:N1} Stunden Standby haben {1} % Akku gekostet ({2:N2} % pro Stunde).' -f $hours, $lost, $perHour)
 }
 
 # Durchschnittsverbrauch je Profil ueber das gesamte Protokoll.
@@ -516,6 +592,11 @@ function Show-BatteryDetails {
         }
     }
 
+    if ($script:LastStandbyText) {
+        $lines += ''
+        $lines += "Letzter Standby: $script:LastStandbyText"
+    }
+
     $metrics = Get-ProfileMetrics
     if ($metrics) {
         $lines += ''
@@ -573,6 +654,12 @@ $itemVideo = $menu.Items.Add("$(E 0x1F3AC)  Video / Streaming")
 $itemVideo.ShortcutKeyDisplayString = 'Strg+Alt+4'
 $itemVideo.Add_Click({ Invoke-Profile -Name 'Video' })
 
+$itemBack = $menu.Items.Add("$(E 0x21A9)  Zurueck zum vorherigen Profil")
+$itemBack.Add_Click({
+    $previous = Get-PreviousMode
+    if ($previous) { Invoke-Profile -Name $previous }
+})
+
 $menu.Items.Add('-') | Out-Null
 
 $itemAuto = $menu.Items.Add('Automatisch bei Netzteil ab/an umschalten')
@@ -603,6 +690,16 @@ $itemBench.Add_Click({
     }
 }.GetNewClosure())
 
+$itemStatus2 = $menu.Items.Add("$(E 0x1F50D)  Systemzustand & Vorschau")
+$itemStatus2.Add_Click({
+    $statusScript = Join-Path $ScriptDir 'Show-PowerStatus.ps1'
+    if (Test-Path $statusScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$statusScript`""
+        )
+    }
+}.GetNewClosure())
+
 $itemCalibrate = $menu.Items.Add("$(E 0x1F4CF)  CPU-Grenze kalibrieren (Akkubetrieb)")
 $itemCalibrate.Add_Click({
     $calScript = Join-Path $ScriptDir 'Invoke-PowerCalibration.ps1'
@@ -629,6 +726,38 @@ $itemSettings.Add_Click({
     if (Test-Path $settingsScript) {
         Start-Process powershell.exe -ArgumentList @(
             '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$settingsScript`""
+        )
+    }
+}.GetNewClosure())
+
+$itemBackup = $menu.Items.Add('Konfiguration sichern ...')
+$itemBackup.Add_Click({
+    $backupScript = Join-Path $ScriptDir 'Backup-PowerConfig.ps1'
+    if (Test-Path $backupScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+            '-File', "`"$backupScript`"", '-Action', 'Export'
+        )
+    }
+}.GetNewClosure())
+
+$itemRestore = $menu.Items.Add('Konfiguration wiederherstellen ...')
+$itemRestore.Add_Click({
+    $backupScript = Join-Path $ScriptDir 'Backup-PowerConfig.ps1'
+    if (Test-Path $backupScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+            '-File', "`"$backupScript`"", '-Action', 'Import'
+        )
+    }
+}.GetNewClosure())
+
+$itemReset = $menu.Items.Add("$(E 0x1F198)  Alles zuruecksetzen (Notfall)")
+$itemReset.Add_Click({
+    $resetScript = Join-Path $ScriptDir 'Reset-PowerProfile.ps1'
+    if (Test-Path $resetScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$resetScript`""
         )
     }
 }.GetNewClosure())
@@ -710,6 +839,14 @@ function Update-TrayState {
     $itemTravel.Checked   = ($mode -eq 'Travel')
     $itemVideo.Checked    = ($mode -eq 'Video')
 
+    $previousMode = Get-PreviousMode
+    if ($previousMode -and $ShortLabels.ContainsKey($previousMode) -and $previousMode -ne $mode) {
+        $itemBack.Text    = "$(E 0x21A9)  Zurueck zu $($ShortLabels[$previousMode])"
+        $itemBack.Visible = $true
+    } else {
+        $itemBack.Visible = $false
+    }
+
     $reading = $null
     if ($MetricsAvailable) { $reading = Get-BatteryReading }
 
@@ -756,6 +893,8 @@ function Update-TrayState {
     } else {
         $itemRuntime.Visible = $false
     }
+
+    Test-StandbyGap -Reading $reading
 
     if ($reading) {
         Write-PowerLog -Reading $reading -ModeName $mode
@@ -813,7 +952,7 @@ namespace PowerProfileSwitcher {
         }
 
         public void Dispose() {
-            for (int i = 1; i <= 4; i++) { UnregisterHotKey(this.Handle, i); }
+            for (int i = 1; i <= 5; i++) { UnregisterHotKey(this.Handle, i); }
             DestroyHandle();
         }
     }
@@ -835,6 +974,7 @@ namespace PowerProfileSwitcher {
             2 { Invoke-Profile -Name 'Balanced' }
             3 { Invoke-Profile -Name 'Travel' }
             4 { Invoke-Profile -Name 'Video' }
+            5 { Invoke-NextProfile }
         }
     })
 
@@ -844,8 +984,9 @@ namespace PowerProfileSwitcher {
     if ($hotkeyWindow.Register(2, 3, 0x32)) { $registered += 'Strg+Alt+2' }
     if ($hotkeyWindow.Register(3, 3, 0x33)) { $registered += 'Strg+Alt+3' }
     if ($hotkeyWindow.Register(4, 3, 0x34)) { $registered += 'Strg+Alt+4' }
+    if ($hotkeyWindow.Register(5, 3, 0x50)) { $registered += 'Strg+Alt+P' }
 
-    if ($registered.Count -lt 4) {
+    if ($registered.Count -lt 5) {
         "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  Nicht alle Hotkeys konnten registriert werden (belegt?): $($registered -join ', ')" |
             Add-Content -Path $LogFile -Encoding UTF8
     }
