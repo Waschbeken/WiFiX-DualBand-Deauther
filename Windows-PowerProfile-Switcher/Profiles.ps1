@@ -20,13 +20,24 @@
 
 # Versionsnummer dieser Fassung - wird von Update-PowerProfile.ps1 mit der
 # Version im GitHub-Repository verglichen. Bei Aenderungen hochzaehlen.
-$PowerProfileVersion = '1.5.0'
+$PowerProfileVersion = '1.6.0'
 
 # Mindest-Ladestand fuer das Gaming-Profil: Liegt der Akku darunter, wird
 # Gaming NICHT aktiviert (auch nicht am Netzteil) - so laedt der Akku bei
 # niedrigem Stand erst wieder auf, statt unter Volllast zu haengen.
 # 0 = Regel abschalten.
 $GamingMinBatteryPercent = 40
+
+# Dienste, die im Unterwegs-Profil pausiert und danach wieder gestartet
+# werden ("Hintergrund-Bremse"). Es werden ausschliesslich Dienste wieder
+# gestartet, die die App selbst gestoppt hat.
+#   WSearch = Windows-Suchindizierung, DoSvc = Update-Auslieferungsoptimierung
+$BackgroundServices = @('WSearch', 'DoSvc')
+
+# Zusaetzliche Programme, die im Unterwegs-Profil beendet werden sollen.
+# Bewusst leer - OneDrive o.ae. nur eintragen, wenn du das wirklich willst,
+# z.B. @('OneDrive'). Beendete Programme startet die App NICHT wieder.
+$BackgroundProcesses = @()
 
 # "Wireless Adapter Settings" -> "Power Saving Mode"
 # 0 = Maximale Leistung, 1 = Niedrig, 2 = Mittel, 3 = Maximale Einsparung
@@ -50,6 +61,7 @@ $ProfileDefinitions = [ordered]@{
         Hertz        = 240
         DiscreteGpu  = $true          # $true = an, $false = aus, $null = nicht anfassen
         NotifyIcon   = 0x1F3AE
+        PauseBackground = $false
         NotifyText   = 'Hoechstleistung: CPU voll frei, Turbo aggressiv, 240 Hz, dedizierte GPU aktiv, WLAN auf maximale Leistung.'
         Settings = @(
             @{ Label = 'CPU Minimum (%)';          SubGroup = 'SUB_PROCESSOR';    Setting = 'PROCTHROTTLEMIN';  Ac = 100; Dc = 20 }
@@ -80,6 +92,7 @@ $ProfileDefinitions = [ordered]@{
         Hertz        = 0              # 0 = Bildwiederholrate nicht aendern
         DiscreteGpu  = $null          # GPU nicht anfassen
         NotifyIcon   = 0x2696
+        PauseBackground = $false
         NotifyText   = 'Windows-Standardeinstellungen (Ausbalanciert).'
         Settings     = @()
     }
@@ -93,6 +106,7 @@ $ProfileDefinitions = [ordered]@{
         Hertz        = 60
         DiscreteGpu  = $false
         NotifyIcon   = 0x1F50B
+        PauseBackground = $true
         NotifyText   = 'Akku sparen: CPU gedrosselt, Turbo aus, 60 Hz, nur integrierte Grafik, Energiesparmodus an, WLAN im Sparmodus.'
         Settings = @(
             @{ Label = 'CPU Minimum (%)';          SubGroup = 'SUB_PROCESSOR';    Setting = 'PROCTHROTTLEMIN';  Ac = 5;   Dc = 5 }
@@ -113,5 +127,56 @@ $ProfileDefinitions = [ordered]@{
             @{ Label = 'USB Selektiv-Suspend';     SubGroup = 'SUB_USB';          Setting = 'USBSELECTSUSPEND'; Ac = 1;   Dc = 1 }
             @{ Label = 'WLAN-Sparmodus';           SubGroup = $WirelessSubGroup;  Setting = $WirelessSetting;   Ac = 2;   Dc = 3 }
         )
+    }
+}
+
+# --------------------------------------------------------------------------
+# Benutzer-Anpassungen aus dem Konfigurationsfenster (Show-PowerSettings.ps1)
+# ueberschreiben die obigen Vorgaben. So bleiben Aenderungen bei einem Update
+# erhalten und es muss nichts im Skript editiert werden.
+# --------------------------------------------------------------------------
+$ProfileOverrideFile = Join-Path (Join-Path $env:LOCALAPPDATA 'PowerProfileSwitcher') 'profile-overrides.json'
+
+function Set-SettingValue {
+    param($Definition, [string]$SettingName, [string]$Field, $Value)
+    foreach ($entry in $Definition.Settings) {
+        if ($entry.Setting -contains $SettingName) {
+            $entry[$Field] = [int]$Value
+            return
+        }
+    }
+}
+
+if (Test-Path $ProfileOverrideFile) {
+    try {
+        $overrides = Get-Content $ProfileOverrideFile -Raw | ConvertFrom-Json
+
+        if ($overrides.PSObject.Properties.Name -contains 'GamingMinBatteryPercent') {
+            $GamingMinBatteryPercent = [int]$overrides.GamingMinBatteryPercent
+        }
+
+        foreach ($modeName in 'Gaming', 'Balanced', 'Travel') {
+            if ($overrides.PSObject.Properties.Name -notcontains $modeName) { continue }
+            $o = $overrides.$modeName
+            $def = $ProfileDefinitions[$modeName]
+            if (-not $def -or -not $o) { continue }
+
+            foreach ($field in 'Brightness', 'Hertz') {
+                if ($o.PSObject.Properties.Name -contains $field) { $def[$field] = [int]$o.$field }
+            }
+            if ($o.PSObject.Properties.Name -contains 'PauseBackground') {
+                $def.PauseBackground = [bool]$o.PauseBackground
+            }
+            if ($o.PSObject.Properties.Name -contains 'DiscreteGpu') {
+                if ($null -eq $o.DiscreteGpu) { $def.DiscreteGpu = $null }
+                else { $def.DiscreteGpu = [bool]$o.DiscreteGpu }
+            }
+            if ($o.PSObject.Properties.Name -contains 'CpuMaxAc') { Set-SettingValue $def 'PROCTHROTTLEMAX' 'Ac' $o.CpuMaxAc }
+            if ($o.PSObject.Properties.Name -contains 'CpuMaxDc') { Set-SettingValue $def 'PROCTHROTTLEMAX' 'Dc' $o.CpuMaxDc }
+            if ($o.PSObject.Properties.Name -contains 'BoostAc')  { Set-SettingValue $def 'PERFBOOSTMODE'   'Ac' $o.BoostAc }
+            if ($o.PSObject.Properties.Name -contains 'BoostDc')  { Set-SettingValue $def 'PERFBOOSTMODE'   'Dc' $o.BoostDc }
+        }
+    } catch {
+        Write-Warning "Benutzer-Anpassungen konnten nicht gelesen werden: $_"
     }
 }

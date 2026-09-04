@@ -343,6 +343,65 @@ function Set-DiscreteGpuState {
     }
 }
 
+# Pausiert stromhungrige Hintergrunddienste im Unterwegs-Profil und gibt sie
+# spaeter wieder frei. Es werden ausschliesslich Dienste gestartet, die diese
+# App selbst gestoppt hat - manuell deaktivierte Dienste bleiben unangetastet.
+function Set-BackgroundServices {
+    param([Parameter(Mandatory = $true)][bool]$Pause)
+
+    $servicesFile = Join-Path $StateDir 'services.json'
+    $stoppedByUs = @()
+    if (Test-Path $servicesFile) {
+        try { $stoppedByUs = @(Get-Content $servicesFile -Raw | ConvertFrom-Json) } catch { $stoppedByUs = @() }
+    }
+
+    if ($Pause) {
+        foreach ($name in $BackgroundServices) {
+            try {
+                $svc = Get-Service -Name $name -ErrorAction Stop
+                if ($svc.Status -eq 'Running') {
+                    Stop-Service -Name $name -Force -ErrorAction Stop
+                    if ($stoppedByUs -notcontains $name) { $stoppedByUs += $name }
+                    Write-Info "Dienst '$name' pausiert."
+                }
+            } catch {
+                Write-Warning "Dienst '$name' konnte nicht pausiert werden: $_"
+            }
+        }
+
+        foreach ($procName in $BackgroundProcesses) {
+            try {
+                Get-Process -Name $procName -ErrorAction Stop |
+                    Stop-Process -Force -ErrorAction SilentlyContinue
+                Write-Info "Programm '$procName' beendet."
+            } catch { }
+        }
+    } else {
+        $remaining = @()
+        foreach ($name in $stoppedByUs) {
+            try {
+                $svc = Get-Service -Name $name -ErrorAction Stop
+                if ($svc.StartType -eq 'Disabled') {
+                    Write-Info "Dienst '$name' ist deaktiviert - wird nicht gestartet."
+                    continue
+                }
+                if ($svc.Status -ne 'Running') {
+                    Start-Service -Name $name -ErrorAction Stop
+                    Write-Info "Dienst '$name' wieder gestartet."
+                }
+            } catch {
+                Write-Warning "Dienst '$name' konnte nicht gestartet werden: $_"
+                $remaining += $name
+            }
+        }
+        $stoppedByUs = $remaining
+    }
+
+    try {
+        ,$stoppedByUs | ConvertTo-Json | Set-Content -Path $servicesFile -Encoding UTF8
+    } catch { }
+}
+
 function Show-Notification {
     param([string]$Title, [string]$Message)
     if ($NoNotify) { return }
@@ -420,6 +479,10 @@ if ($def.Hertz -gt 0) {
     } else {
         Set-RefreshRate -Hertz $def.Hertz
     }
+}
+
+if ($null -ne $def.PauseBackground) {
+    Set-BackgroundServices -Pause ([bool]$def.PauseBackground)
 }
 
 if ($null -ne $def.DiscreteGpu) {

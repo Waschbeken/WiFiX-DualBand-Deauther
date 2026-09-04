@@ -305,6 +305,39 @@ if ($byProfile.Count -ge 2) {
 }
 [void]$html.AppendLine('</div>')
 
+# --- Leistungstest, falls vorhanden --------------------------------------
+$benchFile = Join-Path $StateDir 'benchmark.json'
+if (Test-Path $benchFile) {
+    try {
+        $bench = Get-Content $benchFile -Raw | ConvertFrom-Json
+        $benchRows = @()
+        foreach ($key in 'Gaming', 'Balanced', 'Travel') {
+            if ($bench.PSObject.Properties.Name -notcontains $key) { continue }
+            $benchRows += [pscustomobject]@{ Key = $key; Data = $bench.$key }
+        }
+        if ($benchRows.Count -gt 0) {
+            $bestMulti = ($benchRows | ForEach-Object { [double]$_.Data.Multi } | Measure-Object -Maximum).Maximum
+            [void]$html.AppendLine('<div class="card">')
+            [void]$html.AppendLine('<h2>Leistungstest je Profil</h2>')
+            [void]$html.AppendLine('<div class="scroll"><table><thead><tr><th>Profil</th><th>Leistung</th><th>Alle Kerne</th><th>Einkern</th><th>Verbrauch dabei</th><th>Effizienz</th><th>Gemessen</th></tr></thead><tbody>')
+            foreach ($row in $benchRows) {
+                $e = $row.Data
+                $rel = 0
+                if ($bestMulti -gt 0) { $rel = [int][Math]::Round(100.0 * [double]$e.Multi / $bestMulti) }
+                $wattText = if ([double]$e.Watt -gt 0) { '{0:N1} W' -f [double]$e.Watt } else { '-' }
+                $effText  = if ([double]$e.Watt -gt 0) { '{0:N2} /W' -f ([double]$e.Multi / [double]$e.Watt) } else { '-' }
+                [void]$html.AppendLine(("<tr><td><span class=`"dot`" style=`"background:{0}`"></span>{1}</td><td>{2} %</td><td>{3:N2}</td><td>{4:N2}</td><td>{5}</td><td>{6}</td><td>{7}</td></tr>" -f `
+                    (Get-ProfileColor -Name $row.Key), (Encode-Html (Get-ProfileName -Name $row.Key)),
+                    $rel, [double]$e.Multi, [double]$e.Single,
+                    (Encode-Html $wattText), (Encode-Html $effText), (Encode-Html ([string]$e.When))))
+            }
+            [void]$html.AppendLine('</tbody></table></div>')
+            [void]$html.AppendLine('<p class="note">100 % = bestes gemessenes Profil. Die Werte sind relativ und nur untereinander vergleichbar - fuer ein faires Bild den Test in jedem Profil unter gleichen Bedingungen starten (gleiche Stromquelle, nichts anderes aktiv).</p>')
+            [void]$html.AppendLine('</div>')
+        }
+    } catch { }
+}
+
 [void]$html.AppendLine('<div class="card">')
 [void]$html.AppendLine('<h2>Durchschnitt je Tag</h2>')
 [void]$html.AppendLine('<div class="scroll"><table><thead><tr><th>Tag</th><th>Mittel</th><th>Messpunkte</th></tr></thead><tbody>')

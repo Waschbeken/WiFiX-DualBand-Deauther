@@ -56,6 +56,20 @@ if (Test-Path $StartMenuDir) {
     Remove-Item -Path $StartMenuDir -Recurse -Force
 }
 
+# --- Pausierte Hintergrunddienste wieder freigeben -----------------------
+$servicesFile = Join-Path $InstallDir 'services.json'
+if (Test-Path $servicesFile) {
+    try {
+        foreach ($name in @(Get-Content $servicesFile -Raw | ConvertFrom-Json)) {
+            $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -ne 'Running' -and $svc.StartType -ne 'Disabled') {
+                Write-Info "Starte pausierten Dienst '$name' wieder ..."
+                Start-Service -Name $name -ErrorAction SilentlyContinue
+            }
+        }
+    } catch { }
+}
+
 # --- Aktives Schema zuruecksetzen und eigene Schemata optional loeschen ---
 Write-Info "Setze aktives Energieschema auf 'Ausbalanciert' zurueck ..."
 powercfg /setactive SCHEME_BALANCED 2>&1 | Out-Null

@@ -491,6 +491,26 @@ $itemReport.Add_Click({
     }
 }.GetNewClosure())
 
+$itemBench = $menu.Items.Add("$(E 0x1F3C1)  Leistungstest fuer dieses Profil")
+$itemBench.Add_Click({
+    $benchScript = Join-Path $ScriptDir 'Test-PowerPerformance.ps1'
+    if (Test-Path $benchScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$benchScript`""
+        )
+    }
+}.GetNewClosure())
+
+$itemSettings = $menu.Items.Add("$(E 0x2699)  Einstellungen ...")
+$itemSettings.Add_Click({
+    $settingsScript = Join-Path $ScriptDir 'Show-PowerSettings.ps1'
+    if (Test-Path $settingsScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$settingsScript`""
+        )
+    }
+}.GetNewClosure())
+
 $itemUpdate = $menu.Items.Add('Nach Updates suchen')
 $itemUpdate.Add_Click({
     $updateScript = Join-Path $ScriptDir 'Update-PowerProfile.ps1'

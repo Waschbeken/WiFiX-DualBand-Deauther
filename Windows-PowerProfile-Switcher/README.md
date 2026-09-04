@@ -94,6 +94,70 @@ ist deutlich belastbarer als die kurze Messung direkt nach dem
 Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
 automatisch gekürzt, sobald sie 2 MB überschreitet.
 
+## Leistungstest (was ein Profil leistet, nicht nur was es kostet)
+
+Tray-Menü → **„Leistungstest fuer dieses Profil"** lässt etwa 20 Sekunden
+eine reine Rechenlast laufen (einkernig und über alle Kerne) und misst
+dabei gleichzeitig Verbrauch und CPU-Takt. Ergebnis z. B.:
+
+```
+Profil: Unterwegs
+Einkern-Leistung   : 12,40 Durchlaeufe/s
+Alle Kerne (24)    : 148,20 Durchlaeufe/s
+CPU-Takt (Mittel)  : 1850 MHz
+Verbrauch dabei    : 21,3 W
+Effizienz          : 6,96 Durchlaeufe/s je Watt
+
+Vergleich mit frueheren Messungen:
+  Gaming         100 % Leistung    54,7 W   (04.09. 19:12)
+  Unterwegs       38 % Leistung    21,3 W   (04.09. 19:31)
+```
+
+Damit siehst du erstmals das **Preis-Leistungs-Verhältnis**: Wenn
+„Unterwegs" nur noch 38 % Leistung bringt, aber 61 % Strom spart, passt
+die Drosselung – bringt es dagegen 20 % Leistung bei 30 % Ersparnis, ist
+sie zu hart eingestellt und `CPU-Maximum` sollte höher.
+
+Den Test in **jedem Profil einmal** unter gleichen Bedingungen starten
+(gleiche Stromquelle, nichts anderes aktiv) – danach steht der Vergleich
+auch im Verbrauchs-Bericht. Die Zahlen sind relativ und nur untereinander
+vergleichbar, kein absoluter Benchmark-Wert.
+
+## Hintergrund-Bremse
+
+Im Unterwegs-Profil pausiert die App stromhungrige Hintergrunddienste und
+gibt sie bei „Gaming"/„Ausgeglichen" wieder frei:
+
+- `WSearch` – Windows-Suchindizierung
+- `DoSvc` – Update-Auslieferungsoptimierung (lädt Updates auch für andere
+  PCs im Netz hoch)
+
+Wieder gestartet werden **ausschließlich Dienste, die die App selbst
+gestoppt hat** (gemerkt in `services.json`) – manuell deaktivierte Dienste
+bleiben unangetastet, und die Deinstallation gibt alles wieder frei.
+
+Weitere Dienste oder Programme lassen sich in `Profiles.ps1` über
+`$BackgroundServices` bzw. `$BackgroundProcesses` ergänzen. `$BackgroundProcesses`
+ist bewusst leer: Programme wie OneDrive würden beendet und **nicht**
+automatisch wieder gestartet – nur eintragen, wenn du das willst.
+Abschalten lässt sich das Ganze pro Profil im Einstellungsfenster.
+
+## Einstellungsfenster
+
+Tray-Menü → **„Einstellungen ..."** öffnet ein Fenster für die Werte, die
+man am ehesten anpassen will, ohne `Profiles.ps1` zu bearbeiten:
+
+- je Profil: Helligkeit, Bildwiederholrate, CPU-Maximum, Turbo/Boost,
+  Hintergrund-Bremse an/aus
+- allgemein: Gaming-Mindestakku (die 40-%-Regel) und automatisches
+  Umschalten beim An-/Abstecken
+
+Gespeichert wird nach `profile-overrides.json`; `Profiles.ps1` liest die
+Datei bei jedem Profilwechsel. Zwei Vorteile: es ist **keine
+Neuinstallation nötig**, und ein Update überschreibt deine Anpassungen
+nicht. „Standardwerte" löscht die Datei wieder. Alles andere (Zeiten,
+WLAN, PCIe, Aufwachtimer …) bleibt in `Profiles.ps1`.
+
 ## Verbrauchs-Bericht (Diagramm)
 
 Tray-Menü → **„Verbrauchs-Bericht anzeigen"** erzeugt aus `power-log.csv`
@@ -125,7 +189,7 @@ du, läuft das mitgelieferte `Install.ps1` (einmal UAC-Abfrage), danach
 startet das Tray-Icon neu. Ohne Bestätigung passiert nichts, und
 heruntergeladene Dateien werden anschließend wieder gelöscht.
 
-Aktuelle Version: **1.5.0**
+Aktuelle Version: **1.6.0**
 
 ## Profil-Laufzeit im Menü
 
