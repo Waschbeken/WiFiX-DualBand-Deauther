@@ -40,7 +40,8 @@ New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 'Profiles.ps1',
                   'Test-PowerProfile.ps1', 'New-PowerReport.ps1', 'Update-PowerProfile.ps1',
                   'Test-PowerPerformance.ps1', 'Show-PowerSettings.ps1', 'PowerBench.ps1',
-                  'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Uninstall.ps1') {
+                  'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Watchdog-Tray.ps1',
+                  'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 
@@ -116,6 +117,27 @@ $trayPrincipal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interacti
 Register-ScheduledTask -TaskName $trayTaskName -Action $trayAction -Trigger $trayTrigger `
     -Principal $trayPrincipal -Settings $taskSettings `
     -Description 'PowerProfile Switcher: Tray-Icon bei Anmeldung starten' | Out-Null
+
+# --- Watchdog: startet das Tray-Icon neu, falls der Prozess stirbt ------
+$watchdogTaskName = 'PowerProfileSwitcher-Watchdog'
+Write-Info "Richte Ueberwachung '$watchdogTaskName' ein ..."
+Unregister-ScheduledTask -TaskName $watchdogTaskName -Confirm:$false -ErrorAction SilentlyContinue
+
+$watchdogScript  = Join-Path $InstallDir 'Watchdog-Tray.ps1'
+$watchdogAction  = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watchdogScript`""
+# Bei der Anmeldung und danach alle 5 Minuten pruefen.
+$watchdogTriggers = @(
+    (New-ScheduledTaskTrigger -AtLogOn -User $UserId),
+    (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
+        -RepetitionInterval (New-TimeSpan -Minutes 5) `
+        -RepetitionDuration (New-TimeSpan -Days 365))
+)
+$watchdogPrincipal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
+
+Register-ScheduledTask -TaskName $watchdogTaskName -Action $watchdogAction -Trigger $watchdogTriggers `
+    -Principal $watchdogPrincipal -Settings $taskSettings `
+    -Description 'PowerProfile Switcher: startet das Tray-Icon neu, falls es nicht mehr laeuft' | Out-Null
 
 # --- Desktop-Verknuepfungen -------------------------------------------
 function New-ProfileShortcut {

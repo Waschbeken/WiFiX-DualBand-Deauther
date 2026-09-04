@@ -61,6 +61,31 @@ function E {
     try { [char]::ConvertFromUtf32($CodePoint) } catch { '' }
 }
 
+function Write-TrayLog {
+    param([string]$Text)
+    try {
+        if ((Test-Path $LogFile) -and ((Get-Item $LogFile).Length -gt 512KB)) {
+            Get-Content $LogFile -Tail 500 | Set-Content -Path $LogFile -Encoding UTF8
+        }
+        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $Text" | Add-Content -Path $LogFile -Encoding UTF8
+    } catch { }
+}
+
+# Meldet das Icon zwangsweise neu bei der Taskleiste an.
+# WICHTIG: "Visible = $true" allein reicht NICHT - WinForms bricht den
+# Setter ab, wenn die Eigenschaft schon true ist, und schickt dann keine
+# Neuanmeldung an die Shell. Nur das Aus-/Einschalten erzwingt sie.
+function Restore-TrayIcon {
+    param([string]$Reason = 'Routine')
+    try {
+        $notifyIcon.Visible = $false
+        $notifyIcon.Visible = $true
+        Write-TrayLog "Icon neu bei der Taskleiste angemeldet ($Reason)"
+    } catch {
+        Write-TrayLog "Icon konnte nicht neu angemeldet werden ($Reason): $_"
+    }
+}
+
 function Get-CurrentState {
     if (-not (Test-Path $CurrentFile)) { return $null }
     try { return (Get-Content $CurrentFile -Raw | ConvertFrom-Json) } catch { return $null }
@@ -673,9 +698,9 @@ function Set-TrayTooltip {
 
 # Aktuelles Profil im Icon/Tooltip/Menue widerspiegeln, Messwert aufnehmen
 # und das Icon in der Taskleiste "am Leben halten".
-function Update-TrayState {
-    $notifyIcon.Visible = $true
+$TickCount = 0
 
+function Update-TrayState {
     $mode = Get-CurrentMode
     $tooltip = 'PowerProfile Switcher'
     if ($mode -and $ShortLabels.ContainsKey($mode)) { $tooltip = $ShortLabels[$mode] }
@@ -754,10 +779,20 @@ namespace PowerProfileSwitcher {
         [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
         [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int RegisterWindowMessage(string message);
+
         private const int WM_HOTKEY = 0x0312;
+        private const int WM_DISPLAYCHANGE = 0x007E;
+        private static readonly int WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
 
         public int LastId = 0;
         public event EventHandler HotkeyPressed;
+
+        // Wird ausgeloest, wenn der Explorer die Taskleiste neu aufbaut oder
+        // sich die Anzeige aendert (z.B. nach einem Grafiktreiber-Reset) -
+        // genau dann verliert Windows die Symbole im Infobereich.
+        public event EventHandler ShellRestarted;
 
         public HotkeyWindow() {
             CreateHandle(new CreateParams());
@@ -771,6 +806,8 @@ namespace PowerProfileSwitcher {
             if (m.Msg == WM_HOTKEY) {
                 LastId = m.WParam.ToInt32();
                 if (HotkeyPressed != null) { HotkeyPressed(this, EventArgs.Empty); }
+            } else if (m.Msg == WM_TASKBARCREATED || m.Msg == WM_DISPLAYCHANGE) {
+                if (ShellRestarted != null) { ShellRestarted(this, EventArgs.Empty); }
             }
             base.WndProc(ref m);
         }
@@ -785,6 +822,13 @@ namespace PowerProfileSwitcher {
     }
 
     $hotkeyWindow = New-Object PowerProfileSwitcher.HotkeyWindow
+
+    # Taskleiste neu aufgebaut oder Anzeige gewechselt -> Icon neu anmelden.
+    $hotkeyWindow.add_ShellRestarted({
+        Restore-TrayIcon -Reason 'Taskleiste/Anzeige neu aufgebaut'
+        Update-TrayState
+    })
+
     $hotkeyWindow.add_HotkeyPressed({
         switch ($script:hotkeyWindow.LastId) {
             1 { Invoke-Profile -Name 'Gaming' }
@@ -816,7 +860,18 @@ namespace PowerProfileSwitcher {
 # aufnehmen, Akku-Warnung und Auto-Umschaltung pruefen.
 $heartbeat = New-Object System.Windows.Forms.Timer
 $heartbeat.Interval = 15000
-$heartbeat.Add_Tick({ Update-TrayState })
+$heartbeat.Add_Tick({
+    Update-TrayState
+    $script:TickCount++
+
+    # Alle 5 Minuten das Icon zwangsweise neu anmelden - faengt auch die
+    # Faelle ab, in denen weder TaskbarCreated noch WM_DISPLAYCHANGE kommt.
+    if (($script:TickCount % 20) -eq 0) { Restore-TrayIcon -Reason 'Routine (5 min)' }
+
+    # Alle 30 Minuten ein Lebenszeichen ins Protokoll. Daran laesst sich
+    # spaeter ablesen, ob der Prozess noch lief, als das Icon verschwand.
+    if (($script:TickCount % 120) -eq 0) { Write-TrayLog 'Tray laeuft.' }
+})
 $heartbeat.Start()
 
 # Einmaliger "Kick" ein paar Sekunden nach einem Profilwechsel, damit die
@@ -829,6 +884,7 @@ $kickTimer.Add_Tick({
 })
 
 Update-TrayState
+Write-TrayLog 'Tray gestartet.'
 
 # Beim allerersten Start einmalig die Einrichtung anbieten, damit die Werte
 # zur tatsaechlichen Hardware passen statt geraten zu sein.

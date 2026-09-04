@@ -238,7 +238,7 @@ du, läuft das mitgelieferte `Install.ps1` (einmal UAC-Abfrage), danach
 startet das Tray-Icon neu. Ohne Bestätigung passiert nichts, und
 heruntergeladene Dateien werden anschließend wieder gelöscht.
 
-Aktuelle Version: **1.7.0**
+Aktuelle Version: **1.7.1**
 
 ## Profil-Laufzeit im Menü
 
@@ -391,7 +391,45 @@ Das Tray-Icon zeigt immer den aktuell aktiven Modus:
 - Tooltip (Maus über dem Icon) nennt das aktive Profil im Klartext
 - Im Rechtsklick-Menü ist der aktive Eintrag mit einem Haken markiert
 
-## Warum das Tray-Icon vorher verschwunden ist (und jetzt nicht mehr)
+## Wenn das Tray-Icon verschwindet
+
+Daran wurde in mehreren Schritten gearbeitet — der Stand in 1.7.1:
+
+**Fehler in Version 1.4–1.7.0:** Die „Selbstheilung" setzte alle 15 s
+`Visible = $true`. Das ist wirkungslos, denn WinForms bricht diesen Setter
+ab, wenn die Eigenschaft aus seiner Sicht schon `true` ist — eine
+Neuanmeldung bei der Taskleiste wurde also **nie** verschickt. Genau in dem
+Fall, für den die Funktion gedacht war, tat sie nichts.
+
+**Jetzt behoben durch drei Ebenen:**
+
+1. **Echtes Neuanmelden**: `Visible` wird aus- *und* wieder eingeschaltet,
+   was die Shell zwingt, das Symbol neu aufzunehmen.
+2. **Auf die richtigen Ereignisse reagieren**: Das versteckte Fenster der
+   App horcht jetzt auf `TaskbarCreated` (Explorer baut die Taskleiste neu
+   auf) und `WM_DISPLAYCHANGE` (Anzeige- oder Grafiktreiber-Wechsel, z. B.
+   beim GPU-Umschalten) — beides sind die Momente, in denen Windows die
+   Symbole vergisst. Zusätzlich meldet sich das Icon alle 5 Minuten
+   vorsorglich neu an.
+3. **Watchdog**: Eine eigene geplante Aufgabe prüft alle 5 Minuten, ob der
+   Tray-Prozess überhaupt noch läuft, und startet ihn sonst neu. Das greift
+   auch dann, wenn der ganze Prozess stirbt und sich nicht mehr selbst
+   helfen kann.
+
+**So findest du heraus, was bei dir passiert:** In
+`%LOCALAPPDATA%\PowerProfileSwitcher\tray.log` steht alle 30 Minuten
+„Tray laeuft.", dazu jedes Neuanmelden des Icons und jeder Neustart durch
+den Watchdog. Verschwindet das Icon und die Einträge laufen weiter, war es
+die Taskleiste; brechen sie ab, ist der Prozess gestorben — dann steht die
+Ursache meist direkt darüber im Protokoll.
+
+**Bitte prüfe außerdem**, ob das Symbol nur im Überlauf gelandet ist:
+Taskleisten-Einstellungen → *Andere Symbolleistenelemente* → PowerShell auf
+„Ein" stellen. Windows verschiebt neu angemeldete Symbole gerne dorthin.
+
+### Früher behoben (Version 1.4)
+
+Zwei weitere Ursachen waren schon vorher behoben worden:
 
 Zwei Ursachen waren dafür verantwortlich, dass das Icon nach dem
 Umschalten aus der Taskleiste verschwand:

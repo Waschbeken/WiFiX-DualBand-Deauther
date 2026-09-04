@@ -280,8 +280,9 @@ Add-Line '----------------------------------------------------------------'
 Add-Line ' Geplante Aufgaben'
 Add-Line '----------------------------------------------------------------'
 foreach ($taskName in 'PowerProfileSwitcher-Gaming', 'PowerProfileSwitcher-Balanced',
-                      'PowerProfileSwitcher-Travel', 'PowerProfileSwitcher-Travel-NoGpu',
-                      'PowerProfileSwitcher-Tray') {
+                      'PowerProfileSwitcher-Travel', 'PowerProfileSwitcher-Video',
+                      'PowerProfileSwitcher-Travel-NoGpu', 'PowerProfileSwitcher-Tray',
+                      'PowerProfileSwitcher-Watchdog') {
     try {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
         $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
