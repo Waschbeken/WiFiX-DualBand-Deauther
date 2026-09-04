@@ -60,9 +60,54 @@ function E {
     try { [char]::ConvertFromUtf32($CodePoint) } catch { '' }
 }
 
-function Get-CurrentMode {
+function Get-CurrentState {
     if (-not (Test-Path $CurrentFile)) { return $null }
-    try { return (Get-Content $CurrentFile -Raw | ConvertFrom-Json).Mode } catch { return $null }
+    try { return (Get-Content $CurrentFile -Raw | ConvertFrom-Json) } catch { return $null }
+}
+
+function Get-CurrentMode {
+    $state = Get-CurrentState
+    if ($state) { return $state.Mode }
+    return $null
+}
+
+# "Unterwegs seit 1 h 20 min - 18 % Akku verbraucht"
+function Get-ProfileRuntimeText {
+    param($Reading)
+
+    # Format-Duration stammt aus PowerMetrics.ps1
+    if (-not $MetricsAvailable) { return '' }
+
+    $state = Get-CurrentState
+    if (-not $state -or -not $state.Timestamp) { return '' }
+
+    $started = $null
+    if ($state.Timestamp -is [datetime]) {
+        $started = $state.Timestamp
+    } else {
+        try {
+            $started = [datetime]::Parse([string]$state.Timestamp, $Invariant,
+                        [System.Globalization.DateTimeStyles]::RoundtripKind)
+        } catch { return '' }
+    }
+
+    $elapsed = (Get-Date) - $started
+    if ($elapsed.TotalSeconds -lt 0) { return '' }
+
+    $label = 'Profil'
+    if ($state.Mode -and $ShortLabels.ContainsKey($state.Mode)) { $label = $ShortLabels[$state.Mode] }
+    $text = '{0} seit {1}' -f $label, (Format-Duration -Hours $elapsed.TotalHours)
+
+    $startPercent = 0
+    if ($state.PSObject.Properties.Name -contains 'StartPercent') {
+        try { $startPercent = [int]$state.StartPercent } catch { }
+    }
+    if ($Reading -and $startPercent -gt 0 -and $Reading.Percent -gt 0) {
+        $delta = $startPercent - $Reading.Percent
+        if ($delta -gt 0)     { $text += " - $delta % Akku verbraucht" }
+        elseif ($delta -lt 0) { $text += " - {0} % geladen" -f [Math]::Abs($delta) }
+    }
+    return $text
 }
 
 # --- Einstellungen (persistent) -----------------------------------------
@@ -409,6 +454,9 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $itemStatus = $menu.Items.Add("$(E 0x26A1)  Verbrauch wird gemessen ...")
 $itemStatus.Add_Click({ Show-BatteryDetails })
 
+$itemRuntime = $menu.Items.Add("$(E 0x1F551)  Laufzeit wird ermittelt ...")
+$itemRuntime.Add_Click({ Show-BatteryDetails })
+
 $menu.Items.Add('-') | Out-Null
 
 $itemGaming = $menu.Items.Add("$(E 0x1F3AE)  Gaming (Hoechstleistung)")
@@ -432,6 +480,26 @@ $itemAuto.Add_Click({
     $itemAuto.Checked = [bool]$Settings.AutoSwitch
     Save-Settings
 })
+
+$itemReport = $menu.Items.Add("$(E 0x1F4C8)  Verbrauchs-Bericht anzeigen")
+$itemReport.Add_Click({
+    $reportScript = Join-Path $ScriptDir 'New-PowerReport.ps1'
+    if (Test-Path $reportScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$reportScript`""
+        )
+    }
+}.GetNewClosure())
+
+$itemUpdate = $menu.Items.Add('Nach Updates suchen')
+$itemUpdate.Add_Click({
+    $updateScript = Join-Path $ScriptDir 'Update-PowerProfile.ps1'
+    if (Test-Path $updateScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$updateScript`""
+        )
+    }
+}.GetNewClosure())
 
 $itemDiag = $menu.Items.Add('Diagnose ausfuehren (Bericht oeffnen)')
 $itemDiag.Add_Click({
@@ -520,6 +588,14 @@ function Update-TrayState {
     $itemStatus.Text = "$(E 0x26A1)  $($status.Menu)"
     if ($status.Tip) { $tooltip = "$tooltip - $($status.Tip)" }
     Set-TrayTooltip -Text $tooltip
+
+    $runtimeText = Get-ProfileRuntimeText -Reading $reading
+    if ($runtimeText) {
+        $itemRuntime.Text    = "$(E 0x1F551)  $runtimeText"
+        $itemRuntime.Visible = $true
+    } else {
+        $itemRuntime.Visible = $false
+    }
 
     if ($reading) {
         Write-PowerLog -Reading $reading -ModeName $mode

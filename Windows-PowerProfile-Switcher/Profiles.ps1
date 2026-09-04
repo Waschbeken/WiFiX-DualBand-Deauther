@@ -18,6 +18,10 @@
     Sekunden, 0 bedeutet "nie".
 #>
 
+# Versionsnummer dieser Fassung - wird von Update-PowerProfile.ps1 mit der
+# Version im GitHub-Repository verglichen. Bei Aenderungen hochzaehlen.
+$PowerProfileVersion = '1.5.0'
+
 # Mindest-Ladestand fuer das Gaming-Profil: Liegt der Akku darunter, wird
 # Gaming NICHT aktiviert (auch nicht am Netzteil) - so laedt der Akku bei
 # niedrigem Stand erst wieder auf, statt unter Volllast zu haengen.

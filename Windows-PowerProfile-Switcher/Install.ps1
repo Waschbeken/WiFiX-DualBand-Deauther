@@ -38,7 +38,8 @@ Write-Info "Installiere nach $InstallDir ..."
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
 foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 'Profiles.ps1',
-                  'Test-PowerProfile.ps1', 'Uninstall.ps1') {
+                  'Test-PowerProfile.ps1', 'New-PowerReport.ps1', 'Update-PowerProfile.ps1',
+                  'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 

@@ -93,6 +93,47 @@ ist deutlich belastbarer als die kurze Messung direkt nach dem
 Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
 automatisch gekürzt, sobald sie 2 MB überschreitet.
 
+## Verbrauchs-Bericht (Diagramm)
+
+Tray-Menü → **„Verbrauchs-Bericht anzeigen"** erzeugt aus `power-log.csv`
+eine HTML-Seite und öffnet sie im Browser:
+
+- **Verlaufsdiagramm** der gemessenen Watt, farbig nach Profil (rot =
+  Gaming, blau = Ausgeglichen, grün = Unterwegs), mit Tooltip pro Balken
+- Kennzahlen: Gesamtdurchschnitt, sparsamstes Profil, aufgezeichnete
+  Akku-Stunden, aktuelle Akkukapazität
+- Tabelle je Profil: Mittel-/Minimal-/Maximalverbrauch, hochgerechnete
+  Laufzeit bei vollem Akku, Anzahl Messpunkte – inklusive Satz wie
+  *„Unterwegs verbraucht im Mittel 58 % weniger als Gaming"*
+- Tabelle je Tag (letzte 14 Tage)
+
+Das Diagramm ist reines Inline-SVG – keine Bibliothek, kein Internet, die
+Datei (`%LOCALAPPDATA%\PowerProfileSwitcher\verbrauch.html`) lässt sich
+also auch offline öffnen oder weitergeben. Zeitraum ändern:
+`New-PowerReport.ps1 -Days 30` (`0` = alles).
+
+Weil nur im Akkubetrieb protokolliert wird, zeigt die Zeitachse
+aneinandergereihte Akku-Phasen, nicht die durchgehende Kalenderzeit.
+
+## Updates
+
+Tray-Menü → **„Nach Updates suchen"** lädt das aktuelle Archiv aus dem
+GitHub-Repository, vergleicht `$PowerProfileVersion` aus `Profiles.ps1`
+mit der installierten Fassung und bietet die Aktualisierung an. Bestätigst
+du, läuft das mitgelieferte `Install.ps1` (einmal UAC-Abfrage), danach
+startet das Tray-Icon neu. Ohne Bestätigung passiert nichts, und
+heruntergeladene Dateien werden anschließend wieder gelöscht.
+
+Aktuelle Version: **1.5.0**
+
+## Profil-Laufzeit im Menü
+
+Unter der Verbrauchszeile steht jetzt, seit wann das aktuelle Profil
+läuft und was es gekostet hat – z. B. *„Unterwegs seit 1 h 20 min – 18 %
+Akku verbraucht"* (beim Laden entsprechend *„… – 12 % geladen"*). Der
+Ladestand zum Zeitpunkt des Wechsels wird dafür in `current.json`
+mitgeschrieben.
+
 ## Schutzregel: Gaming erst ab 40 % Akku
 
 Liegt der Ladestand **unter 40 %**, wird das Gaming-Profil **nicht

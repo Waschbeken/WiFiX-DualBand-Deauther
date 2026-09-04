@@ -188,9 +188,20 @@ function Save-State($StateObj) {
 function Save-CurrentMode {
     param([string]$ModeName)
     try {
+        # Ladestand beim Wechsel mitschreiben, damit das Tray-Icon spaeter
+        # zeigen kann, wie viel Akku dieses Profil bisher gekostet hat.
+        $startPercent = 0
+        if ($MetricsAvailable) {
+            $reading = Get-BatteryReading
+            if ($reading) { $startPercent = $reading.Percent }
+        }
+
         $currentFile = Join-Path $StateDir 'current.json'
-        [pscustomobject]@{ Mode = $ModeName; Timestamp = (Get-Date).ToString('o') } |
-            ConvertTo-Json | Set-Content -Path $currentFile -Encoding UTF8
+        [pscustomobject]@{
+            Mode         = $ModeName
+            Timestamp    = (Get-Date).ToString('o')
+            StartPercent = $startPercent
+        } | ConvertTo-Json | Set-Content -Path $currentFile -Encoding UTF8
     } catch {
         Write-Warning "Konnte aktuellen Modus nicht speichern: $_"
     }
