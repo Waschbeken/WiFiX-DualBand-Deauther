@@ -84,6 +84,46 @@ Einfach die passende Verknüpfung anklicken oder im Tray-Menü das Profil
 auswählen. Eine kurze Benachrichtigung bestätigt die Umschaltung. Der
 Wechsel dauert nur ein bis zwei Sekunden.
 
+Das Tray-Icon zeigt immer den aktuell aktiven Modus:
+
+- 🔴 rot = Gaming, 🔵 blau = Ausgeglichen, 🟢 grün = Unterwegs
+- Tooltip (Maus über dem Icon) nennt das aktive Profil im Klartext
+- Im Rechtsklick-Menü ist der aktive Eintrag mit einem Haken markiert
+
+## Warum das Tray-Icon vorher verschwunden ist (und jetzt nicht mehr)
+
+Zwei Ursachen waren dafür verantwortlich, dass das Icon nach dem
+Umschalten aus der Taskleiste verschwand:
+
+1. **Windows beendet geplante Aufgaben standardmäßig, sobald der Laptop
+   auf Akku wechselt** (`StopIfGoingOnBatteries`) – genau der Moment, in
+   dem man auf "Unterwegs" umschaltet. Das Tray-Icon lief als geplante
+   Aufgabe und wurde dadurch abgeschossen.
+2. Das Umschalten der GPU (`pnputil`) und der Bildwiederholrate löst
+   kurz einen Grafiktreiber-Reset aus, bei dem Windows Explorer
+   gelegentlich alle Tray-Icons "vergisst", die sich nicht von selbst neu
+   anmelden.
+
+Behoben durch:
+
+- Die geplante Aufgabe für das Tray-Icon läuft jetzt explizit **auch im
+  Akkubetrieb weiter**, hat **kein 72-Stunden-Zeitlimit** mehr (Windows'
+  Standardlimit für geplante Aufgaben – hätte das Icon spätestens nach 3
+  Tagen ohnehin beendet) und **startet sich bei einem Absturz bis zu 3x
+  automatisch neu**.
+- `Start-Tray.ps1` hat jetzt einen **Selbstheilungs-Timer**: alle 15
+  Sekunden (und zusätzlich 4 Sekunden nach jedem Profilwechsel) setzt es
+  `Visible = $true` erneut und aktualisiert Icon/Tooltip – falls Windows
+  das Icon zwischendurch entfernt hat, taucht es so innerhalb weniger
+  Sekunden von selbst wieder auf.
+- Fehler in einzelnen Menü-/Timer-Ereignissen werden abgefangen und nach
+  `%LOCALAPPDATA%\PowerProfileSwitcher\tray.log` protokolliert, statt den
+  ganzen Tray-Prozess abstürzen zu lassen.
+
+**Wichtig:** Diese Verbesserungen wirken erst nach einer erneuten
+Installation – bitte `Install.ps1` einmal neu ausführen (siehe unten),
+damit die geplante Aufgabe mit den neuen Einstellungen neu angelegt wird.
+
 ## Anpassen
 
 Alle konkreten Werte (CPU-Grenzen, Zeiten bis Bildschirm/Standby,
@@ -135,6 +175,14 @@ gelöscht.
   Inaktivität) über die WMI-Klasse `WmiMonitorBrightnessMethods`
   gesetzt – funktioniert nur beim eingebauten Laptop-Display, nicht bei
   extern angeschlossenen Monitoren.
+- Das aktuell aktive Profil steht in
+  `%LOCALAPPDATA%\PowerProfileSwitcher\current.json`, Tray-Fehler in
+  `...\tray.log` – hilfreich, falls doch mal etwas nicht wie erwartet
+  reagiert.
+- `Install.ps1` ist gefahrlos mehrfach ausführbar (z. B. nach einem
+  Update dieser Skripte): bestehende Aufgaben/Verknüpfungen werden vorher
+  entfernt und neu angelegt, eine bereits laufende Tray-Instanz wird vor
+  dem Neustart sauber beendet.
 
 ## Voraussetzungen
 

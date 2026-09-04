@@ -8,22 +8,80 @@
     Install.ps1 angelegten geplanten Aufgaben aus, die bereits mit
     erhoehten Rechten laufen. Dadurch erscheint kein UAC-Fenster beim
     Umschalten.
+
+    Das Icon haelt sich selbst am Leben: ein Timer setzt regelmaessig
+    "Visible = true" erneut, falls Windows das Icon nach einem
+    Grafiktreiber-Reset (z.B. beim GPU-Umschalten) oder einem
+    Explorer-Neustart aus der Taskleiste entfernt hat.
 #>
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+$TaskPrefix  = 'PowerProfileSwitcher-'
+$StateDir    = Join-Path $env:LOCALAPPDATA 'PowerProfileSwitcher'
+$CurrentFile = Join-Path $StateDir 'current.json'
+$LogFile     = Join-Path $StateDir 'tray.log'
+if (-not (Test-Path $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
+
+# Ein einzelner Fehler in einem Menü-/Timer-Handler soll das Tray-Icon
+# nicht abstuerzen lassen - nur protokollieren und weiterlaufen.
+[System.Windows.Forms.Application]::SetUnhandledExceptionMode([System.Windows.Forms.UnhandledExceptionMode]::CatchException)
+[System.Windows.Forms.Application]::add_ThreadException({
+    param($sender, $e)
+    try {
+        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $($e.Exception)" | Add-Content -Path $LogFile -Encoding UTF8
+    } catch {}
+})
 
 function E {
     param([int]$CodePoint)
     try { [char]::ConvertFromUtf32($CodePoint) } catch { '' }
 }
 
-$TaskPrefix = 'PowerProfileSwitcher-'
+function Get-CurrentMode {
+    if (-not (Test-Path $CurrentFile)) { return $null }
+    try { return (Get-Content $CurrentFile -Raw | ConvertFrom-Json).Mode } catch { return $null }
+}
+
+# --- Farbige Punkt-Icons je Profil erzeugen (kein externes .ico noetig) ---
+function New-DotIcon {
+    param([System.Drawing.Color]$Color)
+    $bmp = New-Object System.Drawing.Bitmap 32, 32
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $g.Clear([System.Drawing.Color]::Transparent)
+        $brush = New-Object System.Drawing.SolidBrush $Color
+        $g.FillEllipse($brush, 2, 2, 28, 28)
+        $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), 2
+        $g.DrawEllipse($pen, 2, 2, 28, 28)
+        return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    } finally {
+        $g.Dispose()
+        $bmp.Dispose()
+    }
+}
+
+$Icons = @{
+    Gaming   = New-DotIcon -Color ([System.Drawing.Color]::FromArgb(230, 70, 50))
+    Balanced = New-DotIcon -Color ([System.Drawing.Color]::FromArgb(60, 130, 220))
+    Travel   = New-DotIcon -Color ([System.Drawing.Color]::FromArgb(60, 170, 90))
+    Unknown  = [System.Drawing.SystemIcons]::Information
+}
+
+$Labels = @{
+    Gaming   = 'Gaming (Hoechstleistung)'
+    Balanced = 'Ausgeglichen'
+    Travel   = 'Unterwegs (Akku sparen)'
+}
 
 function Invoke-Profile {
     param([string]$Name)
     try {
         Start-ScheduledTask -TaskName "$TaskPrefix$Name" -ErrorAction Stop
+        $script:kickTimer.Stop()
+        $script:kickTimer.Start()
     } catch {
         [System.Windows.Forms.MessageBox]::Show(
             "Konnte Profil '$Name' nicht aktivieren. Bitte zuerst Install.ps1 (als Administrator) ausfuehren.",
@@ -35,7 +93,7 @@ function Invoke-Profile {
 }
 
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-$notifyIcon.Icon = [System.Drawing.SystemIcons]::Information
+$notifyIcon.Icon = $Icons.Unknown
 $notifyIcon.Text = 'PowerProfile Switcher'
 $notifyIcon.Visible = $true
 
@@ -79,5 +137,43 @@ $notifyIcon.Add_MouseUp({
         $menu.Show([System.Windows.Forms.Cursor]::Position)
     }
 })
+
+# Aktuelles Profil im Icon/Tooltip/Menue widerspiegeln und das Icon in der
+# Taskleiste "am Leben halten" (Selbstheilung nach Treiber-Reset o.ae.).
+function Update-TrayState {
+    $notifyIcon.Visible = $true
+
+    $mode = Get-CurrentMode
+    if ($mode -and $Icons.ContainsKey($mode)) {
+        $notifyIcon.Icon = $Icons[$mode]
+        $notifyIcon.Text = "PowerProfile Switcher - $($Labels[$mode])"
+    } else {
+        $notifyIcon.Icon = $Icons.Unknown
+        $notifyIcon.Text = 'PowerProfile Switcher'
+    }
+
+    $itemGaming.Checked   = ($mode -eq 'Gaming')
+    $itemBalanced.Checked = ($mode -eq 'Balanced')
+    $itemTravel.Checked   = ($mode -eq 'Travel')
+}
+
+# Regelmaessiger Herzschlag (alle 15s): Icon erneut sichtbar machen, falls
+# es aus irgendeinem Grund aus der Taskleiste verschwunden ist.
+$heartbeat = New-Object System.Windows.Forms.Timer
+$heartbeat.Interval = 15000
+$heartbeat.Add_Tick({ Update-TrayState })
+$heartbeat.Start()
+
+# Einmaliger "Kick" ein paar Sekunden nach einem Profilwechsel, damit die
+# Anzeige schneller aktualisiert wird als der naechste Herzschlag (die
+# geplante Aufgabe braucht 1-3s, bis powercfg/GPU/Refresh-Rate fertig sind).
+$kickTimer = New-Object System.Windows.Forms.Timer
+$kickTimer.Interval = 4000
+$kickTimer.Add_Tick({
+    $kickTimer.Stop()
+    Update-TrayState
+})
+
+Update-TrayState
 
 [System.Windows.Forms.Application]::Run()

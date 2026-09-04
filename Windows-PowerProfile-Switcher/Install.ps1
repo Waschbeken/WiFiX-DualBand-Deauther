@@ -44,6 +44,21 @@ foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'Uninstall.ps1') {
 $SetProfileScript = Join-Path $InstallDir 'Set-PowerProfile.ps1'
 $TrayScript       = Join-Path $InstallDir 'Start-Tray.ps1'
 
+# Gemeinsame Aufgaben-Einstellungen fuer alle geplanten Aufgaben:
+#  - kein 72-Stunden-Zeitlimit (Standard!) - sonst wird v.a. das dauerhaft
+#    laufende Tray-Icon nach 3 Tagen automatisch vom Taskplaner beendet
+#  - laeuft/stoppt NICHT beim Wechsel auf Akkubetrieb (Standard stoppt
+#    laufende Aufgaben, sobald das Netzteil getrennt wird - genau der
+#    Moment, in dem man auf "Unterwegs" umschaltet!)
+#  - startet bei Absturz bis zu 3x automatisch neu
+$taskSettings = New-ScheduledTaskSettingsSet `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -RestartCount 3 `
+    -RestartInterval (New-TimeSpan -Minutes 1)
+
 # --- Geplante Aufgaben fuer die drei Profile (erhoehte Rechte, kein UAC-Prompt beim Ausloesen) ---
 $profiles = @('Gaming', 'Balanced', 'Travel')
 
@@ -58,13 +73,20 @@ foreach ($p in $profiles) {
 
     $principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Highest
 
-    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal `
+    Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $taskSettings `
         -Description "PowerProfile Switcher: Profil '$p' aktivieren" | Out-Null
 }
 
 # --- Geplante Aufgabe fuer das Tray-Icon (startet bei Anmeldung, keine Admin-Rechte noetig) ---
 $trayTaskName = 'PowerProfileSwitcher-Tray'
 Write-Info "Richte Autostart fuer das Tray-Icon ein ..."
+
+# Falls bereits eine alte Tray-Instanz laeuft (z.B. bei erneuter
+# Installation/Update), zuerst beenden, damit nicht zwei Icons entstehen.
+Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*Start-Tray.ps1*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
 Unregister-ScheduledTask -TaskName $trayTaskName -Confirm:$false -ErrorAction SilentlyContinue
 
 $trayAction    = New-ScheduledTaskAction -Execute 'powershell.exe' `
@@ -73,7 +95,8 @@ $trayTrigger   = New-ScheduledTaskTrigger -AtLogOn -User $UserId
 $trayPrincipal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask -TaskName $trayTaskName -Action $trayAction -Trigger $trayTrigger `
-    -Principal $trayPrincipal -Description 'PowerProfile Switcher: Tray-Icon bei Anmeldung starten' | Out-Null
+    -Principal $trayPrincipal -Settings $taskSettings `
+    -Description 'PowerProfile Switcher: Tray-Icon bei Anmeldung starten' | Out-Null
 
 # --- Desktop-Verknuepfungen -------------------------------------------
 function New-ProfileShortcut {
@@ -127,7 +150,9 @@ Write-Host '   - Gaming - Hoechstleistung.lnk' -ForegroundColor Green
 Write-Host '   - Ausgeglichen.lnk' -ForegroundColor Green
 Write-Host '   - Unterwegs - Akku sparen.lnk' -ForegroundColor Green
 Write-Host ' Zusaetzlich laeuft ab jetzt ein Tray-Icon (unten rechts) mit' -ForegroundColor Green
-Write-Host ' dem gleichen Menue - startet automatisch bei jeder Anmeldung.' -ForegroundColor Green
+Write-Host ' dem gleichen Menue - startet automatisch bei jeder Anmeldung,' -ForegroundColor Green
+Write-Host ' bleibt auch im Akkubetrieb aktiv und startet sich bei einem' -ForegroundColor Green
+Write-Host ' Absturz von selbst neu.' -ForegroundColor Green
 Write-Host '===========================================================' -ForegroundColor Green
 Write-Host ''
 Read-Host 'Enter druecken zum Schliessen'

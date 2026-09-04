@@ -150,6 +150,19 @@ function Save-State($StateObj) {
     $StateObj | ConvertTo-Json | Set-Content -Path $StateFile -Encoding UTF8
 }
 
+# Merkt sich das zuletzt aktivierte Profil, damit das Tray-Icon (Start-Tray.ps1)
+# das passende Symbol/Tooltip anzeigen und den aktiven Menuepunkt markieren kann.
+function Save-CurrentMode {
+    param([string]$ModeName)
+    try {
+        $currentFile = Join-Path $StateDir 'current.json'
+        [pscustomobject]@{ Mode = $ModeName; Timestamp = (Get-Date).ToString('o') } |
+            ConvertTo-Json | Set-Content -Path $currentFile -Encoding UTF8
+    } catch {
+        Write-Warning "Konnte aktuellen Modus nicht speichern: $_"
+    }
+}
+
 function Test-SchemeExists {
     param([string]$Guid)
     if (-not $Guid) { return $false }
@@ -385,3 +398,5 @@ switch ($Mode) {
         Write-Info "Profil 'Travel' aktiviert."
     }
 }
+
+Save-CurrentMode -ModeName $Mode
