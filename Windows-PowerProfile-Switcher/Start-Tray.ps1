@@ -40,6 +40,11 @@ $MetricsScript    = Join-Path $ScriptDir 'PowerMetrics.ps1'
 $MetricsAvailable = Test-Path $MetricsScript
 if ($MetricsAvailable) { . $MetricsScript }
 
+# Profil-Definitionen einbinden (u.a. Mindest-Akku fuer das Gaming-Profil).
+$GamingMinBatteryPercent = 40
+$ProfilesScript = Join-Path $ScriptDir 'Profiles.ps1'
+if (Test-Path $ProfilesScript) { . $ProfilesScript }
+
 # Ein einzelner Fehler in einem Menü-/Timer-Handler soll das Tray-Icon
 # nicht abstuerzen lassen - nur protokollieren und weiterlaufen.
 [System.Windows.Forms.Application]::SetUnhandledExceptionMode([System.Windows.Forms.UnhandledExceptionMode]::CatchException)
@@ -121,6 +126,7 @@ $DrawSamples    = @()
 $MaxDrawSamples = 8
 $LastOnAc       = $null
 $WarnedLevels   = @()
+$PendingGaming  = $false   # Gaming beim Anstecken gewuenscht, aber Akku noch zu leer
 
 function Invoke-Profile {
     param(
@@ -130,6 +136,7 @@ function Invoke-Profile {
     $taskName = "$TaskPrefix$Name$TaskSuffix"
     try {
         Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $script:PendingGaming = $false
         $script:DrawSamples = @()   # alte Messwerte gelten fuer das alte Profil
         $script:kickTimer.Stop()
         $script:kickTimer.Start()
@@ -231,6 +238,16 @@ function Show-Balloon {
     } catch { }
 }
 
+# Gaming ist erst ab einem Mindest-Ladestand erlaubt. Ohne verlaessliche
+# Akku-Werte (z.B. Desktop-PC) gilt die Regel nicht.
+function Test-GamingAllowed {
+    param($Reading)
+    if ($GamingMinBatteryPercent -le 0) { return $true }
+    if (-not $Reading) { return $true }
+    if ($Reading.FullWh -le 0 -or $Reading.Percent -le 0) { return $true }
+    return ($Reading.Percent -ge $GamingMinBatteryPercent)
+}
+
 # --- Automatisches Umschalten beim An-/Abstecken -------------------------
 function Invoke-AutoSwitch {
     param($Reading)
@@ -239,20 +256,39 @@ function Invoke-AutoSwitch {
     $previous = $script:LastOnAc
     $script:LastOnAc = $Reading.OnAc
 
-    if (-not $Settings.AutoSwitch) { return }
-    if ($null -eq $previous -or $previous -eq $Reading.OnAc) { return }
+    if (-not $Settings.AutoSwitch) {
+        $script:PendingGaming = $false
+        return
+    }
 
+    $changed = ($null -ne $previous -and $previous -ne $Reading.OnAc)
     $current = Get-CurrentMode
-    if ($Reading.OnAc) {
-        if ($current -ne 'Gaming') {
-            Invoke-Profile -Name 'Gaming'
-            Show-Balloon -Title 'Netzteil angeschlossen' -Text 'Automatisch auf Gaming (Hoechstleistung) umgeschaltet.'
-        }
-    } else {
-        if ($current -ne 'Travel') {
+
+    if (-not $Reading.OnAc) {
+        $script:PendingGaming = $false
+        if ($changed -and $current -ne 'Travel') {
             # Ohne GPU-Umschaltung, damit beim Ausstecken keine Neustart-Abfrage kommt.
             Invoke-Profile -Name 'Travel' -TaskSuffix '-NoGpu'
             Show-Balloon -Title 'Netzteil getrennt' -Text 'Automatisch auf Unterwegs (Akku sparen) umgeschaltet. Die dedizierte GPU bleibt an - zum Abschalten das Profil einmal von Hand waehlen.'
+        }
+        return
+    }
+
+    # Netzbetrieb: beim Anstecken Gaming vormerken ...
+    if ($changed -and $current -ne 'Gaming') {
+        $script:PendingGaming = $true
+        if (-not (Test-GamingAllowed -Reading $Reading)) {
+            Show-Balloon -Title 'Netzteil angeschlossen' `
+                -Text ("Akku bei {0} % - Gaming folgt automatisch, sobald {1} % erreicht sind." -f $Reading.Percent, $GamingMinBatteryPercent)
+        }
+    }
+
+    # ... und erst aktivieren, wenn der Akku weit genug geladen ist.
+    if ($script:PendingGaming -and (Test-GamingAllowed -Reading $Reading)) {
+        $script:PendingGaming = $false
+        if ($current -ne 'Gaming') {
+            Invoke-Profile -Name 'Gaming'
+            Show-Balloon -Title 'Netzteil angeschlossen' -Text 'Automatisch auf Gaming (Hoechstleistung) umgeschaltet.'
         }
     }
 }
@@ -470,6 +506,15 @@ function Update-TrayState {
 
     $reading = $null
     if ($MetricsAvailable) { $reading = Get-BatteryReading }
+
+    # Gaming erst ab Mindest-Ladestand anbieten
+    if (Test-GamingAllowed -Reading $reading) {
+        $itemGaming.Enabled = $true
+        $itemGaming.Text    = "$(E 0x1F3AE)  Gaming (Hoechstleistung)"
+    } else {
+        $itemGaming.Enabled = $false
+        $itemGaming.Text    = "$(E 0x1F3AE)  Gaming - erst ab $GamingMinBatteryPercent % Akku"
+    }
 
     $status = Get-PowerStatusText -Reading $reading
     $itemStatus.Text = "$(E 0x26A1)  $($status.Menu)"

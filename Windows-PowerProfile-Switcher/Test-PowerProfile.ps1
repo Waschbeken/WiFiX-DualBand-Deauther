@@ -254,6 +254,12 @@ if (-not $MetricsAvailable) {
         }
         if ($r.CycleCount -gt 0) { Add-Line ('  Ladezyklen     : {0}' -f $r.CycleCount) }
 
+        if ($GamingMinBatteryPercent -gt 0) {
+            $allowed = ($r.FullWh -le 0 -or $r.Percent -le 0 -or $r.Percent -ge $GamingMinBatteryPercent)
+            Add-Line ('  Gaming-Sperre  : erst ab {0} % Akku -> aktuell {1}' -f `
+                $GamingMinBatteryPercent, $(if ($allowed) { 'erlaubt' } else { 'GESPERRT' }))
+        }
+
         if ($r.DrawWatt -gt 0) {
             Add-Line ('  Aktueller Verbrauch: {0:N1} W -> Restlaufzeit ca. {1}' -f `
                 $r.DrawWatt, (Format-Duration -Hours ($r.RemainingWh / $r.DrawWatt)))

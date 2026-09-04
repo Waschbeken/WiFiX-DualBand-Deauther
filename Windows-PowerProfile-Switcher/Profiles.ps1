@@ -18,6 +18,12 @@
     Sekunden, 0 bedeutet "nie".
 #>
 
+# Mindest-Ladestand fuer das Gaming-Profil: Liegt der Akku darunter, wird
+# Gaming NICHT aktiviert (auch nicht am Netzteil) - so laedt der Akku bei
+# niedrigem Stand erst wieder auf, statt unter Volllast zu haengen.
+# 0 = Regel abschalten.
+$GamingMinBatteryPercent = 40
+
 # "Wireless Adapter Settings" -> "Power Saving Mode"
 # 0 = Maximale Leistung, 1 = Niedrig, 2 = Mittel, 3 = Maximale Einsparung
 $WirelessSubGroup = '19cbb8fa-5279-450e-9fac-8a3d5fedd0c1'

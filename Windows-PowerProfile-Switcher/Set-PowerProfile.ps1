@@ -26,7 +26,10 @@ param(
     [switch]$SkipGpu,
 
     # Laesst die Bildwiederholrate unveraendert.
-    [switch]$SkipDisplay
+    [switch]$SkipDisplay,
+
+    # Ignoriert die Mindest-Akku-Regel fuer das Gaming-Profil.
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Continue'
@@ -345,6 +348,24 @@ function Show-Notification {
         $icon.Dispose()
     } catch {
         # Keine GUI verfuegbar (z.B. Remote-Session ohne Desktop) - einfach ignorieren.
+    }
+}
+
+# --------------------------------------------------------------------------
+# Schutzregel: Gaming-Profil erst ab einem Mindest-Ladestand
+# --------------------------------------------------------------------------
+if ($Mode -eq 'Gaming' -and -not $Force -and $MetricsAvailable -and $GamingMinBatteryPercent -gt 0) {
+    $batteryNow = Get-BatteryReading
+    # Nur blocken, wenn der Ladestand auch wirklich plausibel gemeldet wird -
+    # ohne verlaessliche Werte (z.B. Desktop-PC) gilt die Regel nicht.
+    if ($batteryNow -and $batteryNow.FullWh -gt 0 -and $batteryNow.Percent -gt 0 -and
+        $batteryNow.Percent -lt $GamingMinBatteryPercent) {
+
+        $blockText = 'Akku bei {0} % - Gaming ist erst ab {1} % vorgesehen. Das Profil wurde NICHT aktiviert, damit der Akku erst laden kann.' -f `
+            $batteryNow.Percent, $GamingMinBatteryPercent
+        Write-Info $blockText
+        Show-Notification -Title "$(E 0x1F6AB) Gaming-Profil blockiert" -Message $blockText
+        exit 0
     }
 }
 

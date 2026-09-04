@@ -5,7 +5,7 @@ Eine kleine Windows-11-App für den **XMG Neo 16 (E25)**, mit der du per
 
 | Profil | Wann | Was passiert |
 |---|---|---|
-| 🎮 **Gaming** | Zuhause an der Steckdose | Maximale CPU-Leistung, Bildschirm/Standby bleiben aus, WLAN auf höchste Leistung, Helligkeit 100 %, **240 Hz**, **dedizierte GPU aktiv** |
+| 🎮 **Gaming** (erst ab 40 % Akku) | Zuhause an der Steckdose | Maximale CPU-Leistung, Bildschirm/Standby bleiben aus, WLAN auf höchste Leistung, Helligkeit 100 %, **240 Hz**, **dedizierte GPU aktiv** |
 | ⚖️ **Ausgeglichen** | Standard | Windows-Standardschema ("Ausbalanciert"), Helligkeit 60 %, Bildwiederholrate/GPU bleiben unverändert |
 | 🔋 **Unterwegs** | Akku soll möglichst lange halten | CPU gedrosselt, Bildschirm/Standby schalten früh ab, WLAN im Sparmodus, Helligkeit 35 %, **60 Hz**, **dedizierte GPU wird deaktiviert (nur integrierte Grafik)** |
 
@@ -92,6 +92,34 @@ Profil über die gesamte Nutzungsdauer** samt Anzahl der Messungen. Das
 ist deutlich belastbarer als die kurze Messung direkt nach dem
 Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
 automatisch gekürzt, sobald sie 2 MB überschreitet.
+
+## Schutzregel: Gaming erst ab 40 % Akku
+
+Liegt der Ladestand **unter 40 %**, wird das Gaming-Profil **nicht
+aktiviert** – auch nicht am Netzteil. Stattdessen kommt eine
+Benachrichtigung „Akku bei X % – Gaming ist erst ab 40 % vorgesehen",
+und das bisherige Profil bleibt unverändert. So kann der Akku bei
+niedrigem Stand erst laden, statt unter Volllast zu hängen.
+
+Das gilt an allen Stellen gleich: Desktop-Verknüpfung, Startmenü, Hotkey
+und automatisches Umschalten.
+
+- Im Tray-Menü ist der Gaming-Eintrag währenddessen ausgegraut und heißt
+  „Gaming – erst ab 40 % Akku".
+- Beim **automatischen** Umschalten wird der Wunsch gemerkt: Steckst du
+  bei 25 % das Netzteil an, meldet die App „Gaming folgt automatisch,
+  sobald 40 % erreicht sind" – und schaltet dann von selbst um, sobald
+  der Akku so weit geladen ist. Wählst du zwischenzeitlich von Hand ein
+  Profil, wird die Vormerkung verworfen.
+- Ohne verlässliche Akku-Werte (z. B. Desktop-PC oder Akku meldet nichts)
+  greift die Regel nicht.
+- **Schwelle ändern:** `$GamingMinBatteryPercent` ganz oben in
+  `Profiles.ps1` (`0` schaltet die Regel ab), danach `Install.ps1` erneut
+  ausführen.
+- **Einmalig übergehen:** in einer Administrator-PowerShell
+  `…\PowerProfileSwitcher\Set-PowerProfile.ps1 -Mode Gaming -Force`.
+- Die Diagnose zeigt unter „Akku und Verbrauchsmessung", ob die Sperre
+  gerade greift.
 
 ## Automatik, Hotkeys & Diagnose
 
