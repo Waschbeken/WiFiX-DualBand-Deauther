@@ -20,7 +20,7 @@
 
 # Versionsnummer dieser Fassung - wird von Update-PowerProfile.ps1 mit der
 # Version im GitHub-Repository verglichen. Bei Aenderungen hochzaehlen.
-$PowerProfileVersion = '1.6.0'
+$PowerProfileVersion = '1.7.0'
 
 # Mindest-Ladestand fuer das Gaming-Profil: Liegt der Akku darunter, wird
 # Gaming NICHT aktiviert (auch nicht am Netzteil) - so laedt der Akku bei
@@ -54,6 +54,7 @@ $ProfileDefinitions = [ordered]@{
 
     Gaming = @{
         DisplayName  = 'Gaming (Hoechstleistung)'
+        ShortcutName = 'Gaming - Hoechstleistung'
         FriendlyName = 'XMG Gaming (Hoechstleistung)'
         BaseScheme   = 'SCHEME_MIN'
         UseBaseDirectly = $false
@@ -85,6 +86,7 @@ $ProfileDefinitions = [ordered]@{
 
     Balanced = @{
         DisplayName  = 'Ausgeglichen'
+        ShortcutName = 'Ausgeglichen'
         FriendlyName = $null
         BaseScheme   = 'SCHEME_BALANCED'
         UseBaseDirectly = $true       # unveraendertes Windows-Standardschema als 'Reset'
@@ -99,6 +101,7 @@ $ProfileDefinitions = [ordered]@{
 
     Travel = @{
         DisplayName  = 'Unterwegs (Akku sparen)'
+        ShortcutName = 'Unterwegs - Akku sparen'
         FriendlyName = 'XMG Unterwegs (Akku sparen)'
         BaseScheme   = 'SCHEME_MAX'
         UseBaseDirectly = $false
@@ -128,6 +131,37 @@ $ProfileDefinitions = [ordered]@{
             @{ Label = 'WLAN-Sparmodus';           SubGroup = $WirelessSubGroup;  Setting = $WirelessSetting;   Ac = 2;   Dc = 3 }
         )
     }
+
+    # Viertes Profil: Film schauen / Praesentation. Der Bildschirm geht nie
+    # von selbst aus, die CPU laeuft trotzdem sparsam, die GPU wird nicht
+    # angefasst (kein Neustart-Dialog).
+    Video = @{
+        DisplayName  = 'Video / Streaming'
+        ShortcutName = 'Video - Bildschirm bleibt an'
+        FriendlyName = 'XMG Video (Bildschirm bleibt an)'
+        BaseScheme   = 'SCHEME_BALANCED'
+        UseBaseDirectly = $false
+        Brightness   = 55
+        Hertz        = 60
+        DiscreteGpu  = $null
+        NotifyIcon   = 0x1F3AC
+        PauseBackground = $false
+        NotifyText   = 'Video: Bildschirm bleibt an, CPU sparsam ohne Turbo, 60 Hz.'
+        Settings = @(
+            @{ Label = 'CPU Minimum (%)';          SubGroup = 'SUB_PROCESSOR';    Setting = 'PROCTHROTTLEMIN';  Ac = 5;   Dc = 5 }
+            @{ Label = 'CPU Maximum (%)';          SubGroup = 'SUB_PROCESSOR';    Setting = 'PROCTHROTTLEMAX';  Ac = 100; Dc = 80 }
+            @{ Label = 'Turbo/Boost-Modus';        SubGroup = 'SUB_PROCESSOR';    Setting = 'PERFBOOSTMODE';    Ac = 1;   Dc = 0 }
+            @{ Label = 'EPP (100=Effizienz)';      SubGroup = 'SUB_PROCESSOR';    Setting = $EppSetting;        Ac = 40;  Dc = 70 }
+            @{ Label = 'Festplatte aus nach (s)';  SubGroup = 'SUB_DISK';         Setting = 'DISKIDLE';         Ac = 0;   Dc = 900 }
+            @{ Label = 'Bildschirm aus nach (s)';  SubGroup = 'SUB_VIDEO';        Setting = 'VIDEOIDLE';        Ac = 0;   Dc = 0 }
+            @{ Label = 'Standby nach (s)';         SubGroup = 'SUB_SLEEP';        Setting = 'STANDBYIDLE';      Ac = 0;   Dc = 1800 }
+            @{ Label = 'Ruhezustand nach (s)';     SubGroup = 'SUB_SLEEP';        Setting = 'HIBERNATEIDLE';    Ac = 0;   Dc = 3600 }
+            @{ Label = 'Aufwachtimer';             SubGroup = 'SUB_SLEEP';        Setting = 'RTCWAKE';          Ac = 1;   Dc = 1 }
+            @{ Label = 'PCIe Stromsparen';         SubGroup = 'SUB_PCIEXPRESS';   Setting = 'ASPM';             Ac = 1;   Dc = 2 }
+            @{ Label = 'USB Selektiv-Suspend';     SubGroup = 'SUB_USB';          Setting = 'USBSELECTSUSPEND'; Ac = 1;   Dc = 1 }
+            @{ Label = 'WLAN-Sparmodus';           SubGroup = $WirelessSubGroup;  Setting = $WirelessSetting;   Ac = 1;   Dc = 2 }
+        )
+    }
 }
 
 # --------------------------------------------------------------------------
@@ -155,7 +189,7 @@ if (Test-Path $ProfileOverrideFile) {
             $GamingMinBatteryPercent = [int]$overrides.GamingMinBatteryPercent
         }
 
-        foreach ($modeName in 'Gaming', 'Balanced', 'Travel') {
+        foreach ($modeName in 'Gaming', 'Balanced', 'Travel', 'Video') {
             if ($overrides.PSObject.Properties.Name -notcontains $modeName) { continue }
             $o = $overrides.$modeName
             $def = $ProfileDefinitions[$modeName]

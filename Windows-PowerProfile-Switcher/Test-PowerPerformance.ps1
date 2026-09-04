@@ -38,7 +38,7 @@ $MetricsScript    = Join-Path $PSScriptRoot 'PowerMetrics.ps1'
 $MetricsAvailable = Test-Path $MetricsScript
 if ($MetricsAvailable) { . $MetricsScript }
 
-$Labels = @{ Gaming = 'Gaming'; Balanced = 'Ausgeglichen'; Travel = 'Unterwegs' }
+$Labels = @{ Gaming = 'Gaming'; Balanced = 'Ausgeglichen'; Travel = 'Unterwegs'; Video = 'Video' }
 
 function Get-CurrentMode {
     if (-not (Test-Path $CurrentFile)) { return $null }
@@ -56,70 +56,7 @@ function Show-Result {
     } catch { }
 }
 
-# --- Rechenlast in C#, damit alle Kerne echt ausgelastet werden ----------
-if (-not ('PowerProfileSwitcher.Bench' -as [type])) {
-    Add-Type -TypeDefinition @'
-using System;
-using System.Diagnostics;
-using System.Threading;
-
-namespace PowerProfileSwitcher {
-    public static class Bench {
-
-        // Eine Runde Gleitkomma-Arbeit. Das Ergebnis wird zurueckgegeben,
-        // damit der Compiler die Schleife nicht wegoptimiert.
-        private static double Work(int rounds) {
-            double acc = 1.0;
-            for (int i = 1; i <= rounds; i++) {
-                acc += Math.Sqrt(i) * Math.Sin(i * 0.001);
-                if (acc > 1e12) { acc = 1.0; }
-            }
-            return acc;
-        }
-
-        private const int RoundsPerIteration = 200000;
-
-        // Durchlaeufe je Sekunde auf einem Kern.
-        public static double SingleThread(int milliseconds) {
-            Work(RoundsPerIteration); // Aufwaermen (JIT)
-            long iterations = 0;
-            Stopwatch sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < milliseconds) {
-                Work(RoundsPerIteration);
-                iterations++;
-            }
-            sw.Stop();
-            return iterations * 1000.0 / sw.Elapsed.TotalMilliseconds;
-        }
-
-        // Durchlaeufe je Sekunde ueber alle logischen Kerne.
-        public static double MultiThread(int milliseconds) {
-            int threadCount = Environment.ProcessorCount;
-            long total = 0;
-            Thread[] threads = new Thread[threadCount];
-            Stopwatch sw = Stopwatch.StartNew();
-
-            for (int t = 0; t < threadCount; t++) {
-                threads[t] = new Thread(delegate() {
-                    long local = 0;
-                    while (sw.ElapsedMilliseconds < milliseconds) {
-                        Work(RoundsPerIteration);
-                        local++;
-                    }
-                    Interlocked.Add(ref total, local);
-                });
-                threads[t].IsBackground = true;
-                threads[t].Start();
-            }
-
-            for (int t = 0; t < threadCount; t++) { threads[t].Join(); }
-            sw.Stop();
-            return total * 1000.0 / sw.Elapsed.TotalMilliseconds;
-        }
-    }
-}
-'@ -ErrorAction Stop
-}
+. (Join-Path $PSScriptRoot 'PowerBench.ps1')
 
 $mode = Get-CurrentMode
 if (-not $mode) { $mode = 'unbekannt' }
@@ -148,13 +85,7 @@ Add-Sample
 # Mehrkern-Test in drei Abschnitten, damit der Verbrauch waehrend der Last
 # gemessen werden kann und nicht erst danach (die Akku-Firmware meldet den
 # Wert ohnehin leicht verzoegert).
-$chunkMs = [int](($Seconds * 1000) / 3)
-$multiParts = @()
-for ($chunk = 0; $chunk -lt 3; $chunk++) {
-    $multiParts += [PowerProfileSwitcher.Bench]::MultiThread($chunkMs)
-    Add-Sample
-}
-$multiScore = ($multiParts | Measure-Object -Average).Average
+$multiScore = Invoke-BenchmarkRun -Milliseconds ($Seconds * 1000) -Chunks 3 -OnSample { Add-Sample }
 
 $avgWatt = 0.0
 if ($wattSamples.Count -gt 0) {
@@ -209,7 +140,7 @@ if ($others.Count -gt 0) {
     $lines += ''
     $lines += 'Vergleich mit frueheren Messungen:'
     $best = ($data.Values | ForEach-Object { [double]$_.Multi } | Measure-Object -Maximum).Maximum
-    foreach ($key in 'Gaming', 'Balanced', 'Travel') {
+    foreach ($key in 'Gaming', 'Balanced', 'Travel', 'Video') {
         if (-not $data.ContainsKey($key)) { continue }
         $e = $data[$key]
         $relative = 0

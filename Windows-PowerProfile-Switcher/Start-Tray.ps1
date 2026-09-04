@@ -30,6 +30,7 @@ $StateDir    = Join-Path $env:LOCALAPPDATA 'PowerProfileSwitcher'
 $CurrentFile = Join-Path $StateDir 'current.json'
 $SettingsFile= Join-Path $StateDir 'settings.json'
 $LogCsv      = Join-Path $StateDir 'power-log.csv'
+$HealthCsv   = Join-Path $StateDir 'battery-health.csv'
 $LogFile     = Join-Path $StateDir 'tray.log'
 if (-not (Test-Path $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
 
@@ -147,23 +148,74 @@ function New-DotIcon {
     }
 }
 
+if (-not ('PowerProfileSwitcher.IconUtil' -as [type])) {
+    Add-Type -Namespace PowerProfileSwitcher -Name IconUtil -MemberDefinition @'
+[DllImport("user32.dll", SetLastError = true)]
+public static extern bool DestroyIcon(IntPtr handle);
+'@ -UsingNamespace System.Runtime.InteropServices -ErrorAction SilentlyContinue
+}
+
+# Icon mit der aktuellen Wattzahl darin - so sieht man den Verbrauch, ohne
+# das Menue zu oeffnen. Wird laufend neu erzeugt, deshalb wird das alte
+# GDI-Handle jedes Mal wieder freigegeben (siehe Update-TrayState).
+function New-WattIcon {
+    param([System.Drawing.Color]$Color, [int]$Watt)
+    $bmp = New-Object System.Drawing.Bitmap 32, 32
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+        $g.Clear([System.Drawing.Color]::Transparent)
+        $brush = New-Object System.Drawing.SolidBrush $Color
+        $g.FillEllipse($brush, 0, 0, 31, 31)
+
+        $text = if ($Watt -gt 99) { '99' } else { [string]$Watt }
+        $fontSize = if ($text.Length -ge 2) { 17 } else { 21 }
+        $font = New-Object System.Drawing.Font('Segoe UI', $fontSize, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+        $format = New-Object System.Drawing.StringFormat
+        $format.Alignment = [System.Drawing.StringAlignment]::Center
+        $format.LineAlignment = [System.Drawing.StringAlignment]::Center
+        $rect = New-Object System.Drawing.RectangleF 0, 0, 32, 32
+        $g.DrawString($text, $font, [System.Drawing.Brushes]::White, $rect, $format)
+        $font.Dispose()
+
+        return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    } finally {
+        $g.Dispose()
+        $bmp.Dispose()
+    }
+}
+
+$DynamicIcon = $null   # zuletzt selbst gezeichnetes Icon (mit Wattzahl)
+
 $Icons = @{
     Gaming   = New-DotIcon -Color ([System.Drawing.Color]::FromArgb(230, 70, 50))
     Balanced = New-DotIcon -Color ([System.Drawing.Color]::FromArgb(60, 130, 220))
     Travel   = New-DotIcon -Color ([System.Drawing.Color]::FromArgb(60, 170, 90))
+    Video    = New-DotIcon -Color ([System.Drawing.Color]::FromArgb(150, 90, 200))
     Unknown  = [System.Drawing.SystemIcons]::Information
+}
+
+# Farben zum Nachzeichnen des Icons mit Wattzahl
+$IconColors = @{
+    Gaming   = [System.Drawing.Color]::FromArgb(230, 70, 50)
+    Balanced = [System.Drawing.Color]::FromArgb(60, 130, 220)
+    Travel   = [System.Drawing.Color]::FromArgb(60, 170, 90)
+    Video    = [System.Drawing.Color]::FromArgb(150, 90, 200)
 }
 
 $Labels = @{
     Gaming   = 'Gaming (Hoechstleistung)'
     Balanced = 'Ausgeglichen'
     Travel   = 'Unterwegs (Akku sparen)'
+    Video    = 'Video / Streaming'
 }
 
 $ShortLabels = @{
     Gaming   = 'Gaming'
     Balanced = 'Ausgeglichen'
     Travel   = 'Unterwegs'
+    Video    = 'Video'
 }
 
 # Gleitender Mittelwert der letzten Messpunkte fuer die Live-Anzeige.
@@ -218,6 +270,26 @@ function Write-PowerLog {
     } catch { }
 }
 
+# Haelt einmal pro Tag die Akkukapazitaet fest, damit sich die Alterung
+# ueber Monate im Bericht zeigen laesst.
+function Write-BatteryHealth {
+    param($Reading)
+    if (-not $Reading -or $Reading.FullWh -le 0) { return }
+    try {
+        $today = (Get-Date).ToString('yyyy-MM-dd')
+        if (Test-Path $HealthCsv) {
+            $last = Get-Content $HealthCsv -Tail 1 -ErrorAction SilentlyContinue
+            if ($last -and $last.StartsWith($today)) { return }
+        } else {
+            'Datum;KapazitaetWh;NeuzustandWh;Ladezyklen' | Set-Content -Path $HealthCsv -Encoding UTF8
+        }
+        ('{0};{1};{2};{3}' -f $today,
+            $Reading.FullWh.ToString($Invariant),
+            $Reading.DesignWh.ToString($Invariant),
+            $Reading.CycleCount) | Add-Content -Path $HealthCsv -Encoding UTF8
+    } catch { }
+}
+
 # Durchschnittsverbrauch je Profil ueber das gesamte Protokoll.
 function Get-LogStatistics {
     if (-not (Test-Path $LogCsv)) { return @() }
@@ -246,8 +318,8 @@ function Get-LogStatistics {
 # Texte fuer Menue und Tooltip.
 function Get-PowerStatusText {
     param($Reading)
-    if (-not $MetricsAvailable) { return @{ Menu = 'Verbrauchsmessung nicht verfuegbar'; Tip = '' } }
-    if (-not $Reading) { return @{ Menu = 'Kein Akku erkannt'; Tip = '' } }
+    if (-not $MetricsAvailable) { return @{ Menu = 'Verbrauchsmessung nicht verfuegbar'; Tip = ''; Watt = 0 } }
+    if (-not $Reading) { return @{ Menu = 'Kein Akku erkannt'; Tip = ''; Watt = 0 } }
 
     if ($Reading.DrawWatt -gt 0) {
         $script:DrawSamples += $Reading.DrawWatt
@@ -260,9 +332,9 @@ function Get-PowerStatusText {
 
     if ($script:DrawSamples.Count -eq 0) {
         if ($Reading.OnAc) {
-            return @{ Menu = "Am Netzteil - Akku $($Reading.Percent) %"; Tip = "Netz - $($Reading.Percent) %" }
+            return @{ Menu = "Am Netzteil - Akku $($Reading.Percent) %"; Tip = "Netz - $($Reading.Percent) %"; Watt = 0 }
         }
-        return @{ Menu = "Akku $($Reading.Percent) % - Verbrauch wird gemessen ..."; Tip = "$($Reading.Percent) %" }
+        return @{ Menu = "Akku $($Reading.Percent) % - Verbrauch wird gemessen ..."; Tip = "$($Reading.Percent) %"; Watt = 0 }
     }
 
     $avg = [Math]::Round((($script:DrawSamples | Measure-Object -Average).Average), 1)
@@ -271,6 +343,7 @@ function Get-PowerStatusText {
     return @{
         Menu = ('{0:N1} W - Akku {1} %, noch ca. {2}' -f $avg, $Reading.Percent, $rest)
         Tip  = ('{0:N1} W, ~{1}' -f $avg, $rest)
+        Watt = $avg
     }
 }
 
@@ -471,6 +544,10 @@ $itemTravel = $menu.Items.Add("$(E 0x1F50B)  Unterwegs (Akku sparen)")
 $itemTravel.ShortcutKeyDisplayString = 'Strg+Alt+3'
 $itemTravel.Add_Click({ Invoke-Profile -Name 'Travel' })
 
+$itemVideo = $menu.Items.Add("$(E 0x1F3AC)  Video / Streaming")
+$itemVideo.ShortcutKeyDisplayString = 'Strg+Alt+4'
+$itemVideo.Add_Click({ Invoke-Profile -Name 'Video' })
+
 $menu.Items.Add('-') | Out-Null
 
 $itemAuto = $menu.Items.Add('Automatisch bei Netzteil ab/an umschalten')
@@ -497,6 +574,26 @@ $itemBench.Add_Click({
     if (Test-Path $benchScript) {
         Start-Process powershell.exe -ArgumentList @(
             '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$benchScript`""
+        )
+    }
+}.GetNewClosure())
+
+$itemCalibrate = $menu.Items.Add("$(E 0x1F4CF)  CPU-Grenze kalibrieren (Akkubetrieb)")
+$itemCalibrate.Add_Click({
+    $calScript = Join-Path $ScriptDir 'Invoke-PowerCalibration.ps1'
+    if (Test-Path $calScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$calScript`""
+        )
+    }
+}.GetNewClosure())
+
+$itemSetup = $menu.Items.Add("$(E 0x1F527)  Einrichtung (Hardware erkennen)")
+$itemSetup.Add_Click({
+    $setupScript = Join-Path $ScriptDir 'Start-PowerSetup.ps1'
+    if (Test-Path $setupScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$setupScript`""
         )
     }
 }.GetNewClosure())
@@ -581,16 +678,12 @@ function Update-TrayState {
 
     $mode = Get-CurrentMode
     $tooltip = 'PowerProfile Switcher'
-    if ($mode -and $Icons.ContainsKey($mode)) {
-        $notifyIcon.Icon = $Icons[$mode]
-        $tooltip = $ShortLabels[$mode]
-    } else {
-        $notifyIcon.Icon = $Icons.Unknown
-    }
+    if ($mode -and $ShortLabels.ContainsKey($mode)) { $tooltip = $ShortLabels[$mode] }
 
     $itemGaming.Checked   = ($mode -eq 'Gaming')
     $itemBalanced.Checked = ($mode -eq 'Balanced')
     $itemTravel.Checked   = ($mode -eq 'Travel')
+    $itemVideo.Checked    = ($mode -eq 'Video')
 
     $reading = $null
     if ($MetricsAvailable) { $reading = Get-BatteryReading }
@@ -605,6 +698,28 @@ function Update-TrayState {
     }
 
     $status = Get-PowerStatusText -Reading $reading
+
+    # Icon: mit Wattzahl, sobald ein Messwert vorliegt, sonst der farbige Punkt
+    $newDynamic = $null
+    if ($status.Watt -gt 0 -and $mode -and $IconColors.ContainsKey($mode)) {
+        try { $newDynamic = New-WattIcon -Color $IconColors[$mode] -Watt ([int][Math]::Round($status.Watt)) } catch { }
+    }
+    if ($newDynamic) {
+        $notifyIcon.Icon = $newDynamic
+    } elseif ($mode -and $Icons.ContainsKey($mode)) {
+        $notifyIcon.Icon = $Icons[$mode]
+    } else {
+        $notifyIcon.Icon = $Icons.Unknown
+    }
+    # altes selbst gezeichnetes Icon erst nach dem Wechsel freigeben
+    if ($script:DynamicIcon) {
+        try {
+            [PowerProfileSwitcher.IconUtil]::DestroyIcon($script:DynamicIcon.Handle) | Out-Null
+            $script:DynamicIcon.Dispose()
+        } catch { }
+    }
+    $script:DynamicIcon = $newDynamic
+
     $itemStatus.Text = "$(E 0x26A1)  $($status.Menu)"
     if ($status.Tip) { $tooltip = "$tooltip - $($status.Tip)" }
     Set-TrayTooltip -Text $tooltip
@@ -619,6 +734,7 @@ function Update-TrayState {
 
     if ($reading) {
         Write-PowerLog -Reading $reading -ModeName $mode
+        Write-BatteryHealth -Reading $reading
         Test-BatteryWarning -Reading $reading
         Invoke-AutoSwitch -Reading $reading
     }
@@ -660,7 +776,7 @@ namespace PowerProfileSwitcher {
         }
 
         public void Dispose() {
-            for (int i = 1; i <= 3; i++) { UnregisterHotKey(this.Handle, i); }
+            for (int i = 1; i <= 4; i++) { UnregisterHotKey(this.Handle, i); }
             DestroyHandle();
         }
     }
@@ -674,6 +790,7 @@ namespace PowerProfileSwitcher {
             1 { Invoke-Profile -Name 'Gaming' }
             2 { Invoke-Profile -Name 'Balanced' }
             3 { Invoke-Profile -Name 'Travel' }
+            4 { Invoke-Profile -Name 'Video' }
         }
     })
 
@@ -682,8 +799,9 @@ namespace PowerProfileSwitcher {
     if ($hotkeyWindow.Register(1, 3, 0x31)) { $registered += 'Strg+Alt+1' }
     if ($hotkeyWindow.Register(2, 3, 0x32)) { $registered += 'Strg+Alt+2' }
     if ($hotkeyWindow.Register(3, 3, 0x33)) { $registered += 'Strg+Alt+3' }
+    if ($hotkeyWindow.Register(4, 3, 0x34)) { $registered += 'Strg+Alt+4' }
 
-    if ($registered.Count -lt 3) {
+    if ($registered.Count -lt 4) {
         "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  Nicht alle Hotkeys konnten registriert werden (belegt?): $($registered -join ', ')" |
             Add-Content -Path $LogFile -Encoding UTF8
     }
@@ -711,5 +829,17 @@ $kickTimer.Add_Tick({
 })
 
 Update-TrayState
+
+# Beim allerersten Start einmalig die Einrichtung anbieten, damit die Werte
+# zur tatsaechlichen Hardware passen statt geraten zu sein.
+try {
+    $setupScript = Join-Path $ScriptDir 'Start-PowerSetup.ps1'
+    if ((Test-Path $setupScript) -and -not (Test-Path (Join-Path $StateDir 'setup-done.txt'))) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+            '-File', "`"$setupScript`"", '-OnlyIfFirstRun'
+        )
+    }
+} catch { }
 
 [System.Windows.Forms.Application]::Run()

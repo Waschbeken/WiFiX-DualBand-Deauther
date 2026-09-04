@@ -8,6 +8,7 @@ Eine kleine Windows-11-App für den **XMG Neo 16 (E25)**, mit der du per
 | 🎮 **Gaming** (erst ab 40 % Akku) | Zuhause an der Steckdose | Maximale CPU-Leistung, Bildschirm/Standby bleiben aus, WLAN auf höchste Leistung, Helligkeit 100 %, **240 Hz**, **dedizierte GPU aktiv** |
 | ⚖️ **Ausgeglichen** | Standard | Windows-Standardschema ("Ausbalanciert"), Helligkeit 60 %, Bildwiederholrate/GPU bleiben unverändert |
 | 🔋 **Unterwegs** | Akku soll möglichst lange halten | CPU gedrosselt, Bildschirm/Standby schalten früh ab, WLAN im Sparmodus, Helligkeit 35 %, **60 Hz**, **dedizierte GPU wird deaktiviert (nur integrierte Grafik)** |
+| 🎬 **Video / Streaming** | Film schauen, Präsentation | Bildschirm geht **nie** von selbst aus, CPU sparsam ohne Turbo, 60 Hz, Helligkeit 55 %, GPU wird nicht angefasst |
 
 Kein Zusatzprogramm nötig – die App besteht nur aus PowerShell-Skripten,
 die bereits in Windows 11 enthaltene Bordmittel nutzen (`powercfg`,
@@ -93,6 +94,54 @@ Profil über die gesamte Nutzungsdauer** samt Anzahl der Messungen. Das
 ist deutlich belastbarer als die kurze Messung direkt nach dem
 Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
 automatisch gekürzt, sobald sie 2 MB überschreitet.
+
+## Automatische Kalibrierung der CPU-Grenze
+
+Tray-Menü → **„CPU-Grenze kalibrieren (Akkubetrieb)"**. Statt einen Wert
+zu raten, misst die App ihn: Sie probiert nacheinander 40/50/60/70/85/100 %
+CPU-Maximum durch und misst bei jedem Wert Leistung *und* Verbrauch.
+Ergebnis ist eine Tabelle plus zwei Empfehlungen:
+
+- **Bester Wirkungsgrad** – meiste Leistung je Watt, der Vorschlag für den
+  Akkubetrieb
+- **Knick der Kurve** – der günstigste Wert, der noch ~95 % der
+  Spitzenleistung liefert
+
+Auf Wunsch wird der empfohlene Wert direkt übernommen; sonst bleibt alles
+wie vorher. **Die ursprüngliche Einstellung wird in jedem Fall wieder
+hergestellt** (auch bei Abbruch), und der Test läuft nur im Akkubetrieb ab
+30 % Ladung. Dauer: ein bis zwei Minuten unter Volllast — der Lüfter wird
+dabei hörbar. Einmal UAC-Abfrage, weil `powercfg` erhöhte Rechte braucht.
+
+## Einrichtungs-Assistent
+
+Tray-Menü → **„Einrichtung (Hardware erkennen)"**, und beim allerersten
+Start automatisch einmal. Der Assistent liest aus, was wirklich da ist —
+**welche Bildwiederholraten dein Panel tatsächlich anbietet**, Auflösung,
+dedizierte GPU, Akkukapazität samt Zustand, CPU und Kernzahl — und leitet
+daraus Startwerte ab: Gaming bekommt die höchste gemeldete Frequenz,
+Unterwegs/Video die niedrigste ab 48 Hz.
+
+Damit stehen dort gemessene statt geratener Werte. Meldet dein Panel z. B.
+kein 240 Hz, sagt der Assistent das und trägt den echten Maximalwert ein.
+Die CPU-Grenzen lässt er bewusst in Ruhe — dafür gibt es die Kalibrierung.
+
+## Watt-Zahl im Tray-Icon
+
+Sobald ein Messwert vorliegt (also im Akkubetrieb), zeigt das Icon selbst
+die aktuelle Wattzahl auf dem Profil-Farbpunkt — du siehst den Verbrauch
+also permanent, ohne das Menü zu öffnen. Am Netzteil erscheint wieder der
+einfarbige Punkt. Bei 16×16 Pixeln sind zwei Ziffern lesbar, ab 100 W
+zeigt das Icon „99".
+
+## Akku-Zustand im Verlauf
+
+Einmal täglich hält das Tray-Icon die aktuelle Akkukapazität in
+`battery-health.csv` fest. Im Verbrauchs-Bericht erscheint daraus ein
+Balkendiagramm mit dem Kapazitätsverlauf plus Vergleich gegen den
+Neuzustand („aktuell 74,8 von 80,0 Wh — das sind 94 %"). Aussagekräftig
+wird die Kurve erst nach einigen Monaten; kurzfristige Schwankungen sind
+normal, weil Akku-Firmware die Kapazität regelmäßig neu schätzt.
 
 ## Leistungstest (was ein Profil leistet, nicht nur was es kostet)
 
@@ -189,7 +238,7 @@ du, läuft das mitgelieferte `Install.ps1` (einmal UAC-Abfrage), danach
 startet das Tray-Icon neu. Ohne Bestätigung passiert nichts, und
 heruntergeladene Dateien werden anschließend wieder gelöscht.
 
-Aktuelle Version: **1.6.0**
+Aktuelle Version: **1.7.0**
 
 ## Profil-Laufzeit im Menü
 
@@ -245,6 +294,7 @@ GPU wirklich abschalten, wähle „Unterwegs" einmal von Hand.
 | `Strg+Alt+1` | Gaming |
 | `Strg+Alt+2` | Ausgeglichen |
 | `Strg+Alt+3` | Unterwegs |
+| `Strg+Alt+4` | Video / Streaming |
 
 Ist eine Kombination schon von einem anderen Programm belegt, wird sie
 übersprungen und das in `tray.log` vermerkt – die übrigen funktionieren

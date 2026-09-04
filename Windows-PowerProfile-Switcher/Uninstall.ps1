@@ -35,14 +35,15 @@ Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
 
 # --- Geplante Aufgaben entfernen ----------------------------------------
 foreach ($task in 'PowerProfileSwitcher-Gaming', 'PowerProfileSwitcher-Balanced', 'PowerProfileSwitcher-Travel',
-                  'PowerProfileSwitcher-Travel-NoGpu', 'PowerProfileSwitcher-Tray') {
+                  'PowerProfileSwitcher-Video', 'PowerProfileSwitcher-Travel-NoGpu', 'PowerProfileSwitcher-Tray') {
     Write-Info "Entferne geplante Aufgabe '$task' ..."
     Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
 }
 
 # --- Verknuepfungen entfernen --------------------------------------------
 $Desktop = [Environment]::GetFolderPath('Desktop')
-foreach ($name in 'Gaming - Hoechstleistung.lnk', 'Ausgeglichen.lnk', 'Unterwegs - Akku sparen.lnk') {
+foreach ($name in 'Gaming - Hoechstleistung.lnk', 'Ausgeglichen.lnk', 'Unterwegs - Akku sparen.lnk',
+                  'Video - Bildschirm bleibt an.lnk') {
     $path = Join-Path $Desktop $name
     if (Test-Path $path) {
         Write-Info "Entferne Verknuepfung '$name' ..."

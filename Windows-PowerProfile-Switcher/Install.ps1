@@ -39,12 +39,17 @@ New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
 foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 'Profiles.ps1',
                   'Test-PowerProfile.ps1', 'New-PowerReport.ps1', 'Update-PowerProfile.ps1',
-                  'Test-PowerPerformance.ps1', 'Show-PowerSettings.ps1', 'Uninstall.ps1') {
+                  'Test-PowerPerformance.ps1', 'Show-PowerSettings.ps1', 'PowerBench.ps1',
+                  'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 
 $SetProfileScript = Join-Path $InstallDir 'Set-PowerProfile.ps1'
 $TrayScript       = Join-Path $InstallDir 'Start-Tray.ps1'
+
+# Profil-Definitionen laden, damit Aufgaben und Verknuepfungen automatisch
+# zu den in Profiles.ps1 definierten Profilen passen (auch neu hinzugefuegten).
+. (Join-Path $SourceDir 'Profiles.ps1')
 
 # Gemeinsame Aufgaben-Einstellungen fuer alle geplanten Aufgaben:
 #  - kein 72-Stunden-Zeitlimit (Standard!) - sonst wird v.a. das dauerhaft
@@ -61,10 +66,8 @@ $taskSettings = New-ScheduledTaskSettingsSet `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1)
 
-# --- Geplante Aufgaben fuer die drei Profile (erhoehte Rechte, kein UAC-Prompt beim Ausloesen) ---
-$profiles = @('Gaming', 'Balanced', 'Travel')
-
-foreach ($p in $profiles) {
+# --- Geplante Aufgaben je Profil (erhoehte Rechte, kein UAC-Prompt beim Ausloesen) ---
+foreach ($p in $ProfileDefinitions.Keys) {
     $taskName = "PowerProfileSwitcher-$p"
     Write-Info "Richte geplante Aufgabe '$taskName' ein ..."
 
@@ -127,28 +130,18 @@ function New-ProfileShortcut {
     $shortcut.Save()
 }
 
-$Desktop = [Environment]::GetFolderPath('Desktop')
-Write-Info 'Erstelle Desktop-Verknuepfungen ...'
-
-New-ProfileShortcut -Path (Join-Path $Desktop 'Gaming - Hoechstleistung.lnk') `
-    -TaskName 'PowerProfileSwitcher-Gaming' -Description 'Energieprofil: Gaming / Hoechstleistung'
-
-New-ProfileShortcut -Path (Join-Path $Desktop 'Ausgeglichen.lnk') `
-    -TaskName 'PowerProfileSwitcher-Balanced' -Description 'Energieprofil: Windows-Standard'
-
-New-ProfileShortcut -Path (Join-Path $Desktop 'Unterwegs - Akku sparen.lnk') `
-    -TaskName 'PowerProfileSwitcher-Travel' -Description 'Energieprofil: Unterwegs / Akku sparen'
-
-# --- Startmenue-Ordner (optional, gleiche Verknuepfungen) --------------
+$Desktop      = [Environment]::GetFolderPath('Desktop')
 $StartMenuDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'PowerProfile Switcher'
 New-Item -ItemType Directory -Path $StartMenuDir -Force | Out-Null
 
-New-ProfileShortcut -Path (Join-Path $StartMenuDir 'Gaming - Hoechstleistung.lnk') `
-    -TaskName 'PowerProfileSwitcher-Gaming' -Description 'Energieprofil: Gaming / Hoechstleistung'
-New-ProfileShortcut -Path (Join-Path $StartMenuDir 'Ausgeglichen.lnk') `
-    -TaskName 'PowerProfileSwitcher-Balanced' -Description 'Energieprofil: Windows-Standard'
-New-ProfileShortcut -Path (Join-Path $StartMenuDir 'Unterwegs - Akku sparen.lnk') `
-    -TaskName 'PowerProfileSwitcher-Travel' -Description 'Energieprofil: Unterwegs / Akku sparen'
+Write-Info 'Erstelle Verknuepfungen auf Desktop und im Startmenue ...'
+foreach ($p in $ProfileDefinitions.Keys) {
+    $def  = $ProfileDefinitions[$p]
+    $file = "$($def.ShortcutName).lnk"
+    $desc = "Energieprofil: $($def.DisplayName)"
+    New-ProfileShortcut -Path (Join-Path $Desktop $file)      -TaskName "PowerProfileSwitcher-$p" -Description $desc
+    New-ProfileShortcut -Path (Join-Path $StartMenuDir $file) -TaskName "PowerProfileSwitcher-$p" -Description $desc
+}
 
 # --- Tray-Icon direkt jetzt schon starten ------------------------------
 Write-Info 'Starte Tray-Icon ...'
@@ -161,10 +154,10 @@ try {
 Write-Host ''
 Write-Host '===========================================================' -ForegroundColor Green
 Write-Host ' Installation abgeschlossen!' -ForegroundColor Green
-Write-Host ' Auf dem Desktop liegen jetzt drei Verknuepfungen:' -ForegroundColor Green
-Write-Host '   - Gaming - Hoechstleistung.lnk' -ForegroundColor Green
-Write-Host '   - Ausgeglichen.lnk' -ForegroundColor Green
-Write-Host '   - Unterwegs - Akku sparen.lnk' -ForegroundColor Green
+Write-Host ' Auf dem Desktop liegen jetzt Verknuepfungen fuer:' -ForegroundColor Green
+foreach ($p in $ProfileDefinitions.Keys) {
+    Write-Host ("   - {0}" -f $ProfileDefinitions[$p].ShortcutName) -ForegroundColor Green
+}
 Write-Host ' Zusaetzlich laeuft ab jetzt ein Tray-Icon (unten rechts) mit' -ForegroundColor Green
 Write-Host ' dem gleichen Menue - startet automatisch bei jeder Anmeldung,' -ForegroundColor Green
 Write-Host ' bleibt auch im Akkubetrieb aktiv und startet sich bei einem' -ForegroundColor Green

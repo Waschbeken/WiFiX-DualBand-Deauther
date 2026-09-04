@@ -34,12 +34,14 @@ $Colors = @{
     Gaming    = '#e64632'
     Balanced  = '#3c82dc'
     Travel    = '#3caa5a'
+    Video     = '#965ac8'
     unbekannt = '#9aa0a6'
 }
 $Names = @{
     Gaming    = 'Gaming'
     Balanced  = 'Ausgeglichen'
     Travel    = 'Unterwegs'
+    Video     = 'Video'
     unbekannt = 'Unbekannt'
 }
 
@@ -276,7 +278,7 @@ if ($fullWh -gt 0) {
 [void]$html.AppendLine($svg.ToString())
 [void]$html.AppendLine('</div>')
 [void]$html.AppendLine('<div class="legend">')
-foreach ($key in 'Gaming', 'Balanced', 'Travel') {
+foreach ($key in 'Gaming', 'Balanced', 'Travel', 'Video') {
     [void]$html.AppendLine(("  <span><span class=`"dot`" style=`"background:{0}`"></span>{1}</span>" -f `
         (Get-ProfileColor -Name $key), (Get-ProfileName -Name $key)))
 }
@@ -311,7 +313,7 @@ if (Test-Path $benchFile) {
     try {
         $bench = Get-Content $benchFile -Raw | ConvertFrom-Json
         $benchRows = @()
-        foreach ($key in 'Gaming', 'Balanced', 'Travel') {
+        foreach ($key in 'Gaming', 'Balanced', 'Travel', 'Video') {
             if ($bench.PSObject.Properties.Name -notcontains $key) { continue }
             $benchRows += [pscustomobject]@{ Key = $key; Data = $bench.$key }
         }
@@ -347,6 +349,83 @@ foreach ($d in $byDay) {
 }
 [void]$html.AppendLine('</tbody></table></div>')
 [void]$html.AppendLine('</div>')
+
+# --- Akku-Gesundheitsverlauf ---------------------------------------------
+$healthCsv = Join-Path $StateDir 'battery-health.csv'
+if (Test-Path $healthCsv) {
+    try {
+        $healthRows = @()
+        foreach ($row in (Import-Csv -Path $healthCsv -Delimiter ';')) {
+            try {
+                $healthRows += [pscustomobject]@{
+                    Datum   = [datetime]::ParseExact($row.Datum, 'yyyy-MM-dd', $Invariant)
+                    Voll    = [double]::Parse($row.KapazitaetWh, $Invariant)
+                    Neu     = [double]::Parse($row.NeuzustandWh, $Invariant)
+                    Zyklen  = [int]$row.Ladezyklen
+                }
+            } catch { }
+        }
+
+        if ($healthRows.Count -gt 0) {
+            $healthRows = $healthRows | Sort-Object Datum
+            $first = $healthRows[0]
+            $last  = $healthRows[$healthRows.Count - 1]
+
+            [void]$html.AppendLine('<div class="card">')
+            [void]$html.AppendLine('<h2>Akku-Zustand im Verlauf</h2>')
+
+            # Kleines Balkendiagramm der Kapazitaet
+            $hw = 1000; $hh = 160; $hpadL = 55; $hpadR = 20; $hpadT = 14; $hpadB = 30
+            $hplotW = $hw - $hpadL - $hpadR
+            $hplotH = $hh - $hpadT - $hpadB
+            $hMax = ($healthRows | Measure-Object Voll -Maximum).Maximum
+            if ($last.Neu -gt $hMax) { $hMax = $last.Neu }
+            if ($hMax -le 0) { $hMax = 1 }
+
+            $hsvg = New-Object System.Text.StringBuilder
+            [void]$hsvg.AppendLine("<svg viewBox=`"0 0 $hw $hh`" width=`"100%`" role=`"img`" aria-label=`"Akkukapazitaet im Verlauf`">")
+            for ($g = 0; $g -le 2; $g++) {
+                $val = $hMax * $g / 2.0
+                $yy = $hpadT + $hplotH - ($hplotH * $g / 2.0)
+                [void]$hsvg.AppendLine(("  <line x1=`"$hpadL`" y1=`"{0:0.#}`" x2=`"{1}`" y2=`"{0:0.#}`" class=`"grid`" />" -f $yy, ($hpadL + $hplotW)))
+                [void]$hsvg.AppendLine(("  <text x=`"{0}`" y=`"{1:0.#}`" class=`"ylab`">{2:N0} Wh</text>" -f ($hpadL - 8), ($yy + 4), $val))
+            }
+            $hbarW = [Math]::Max(2.0, $hplotW / [double]$healthRows.Count)
+            for ($i = 0; $i -lt $healthRows.Count; $i++) {
+                $r = $healthRows[$i]
+                $bh = $hplotH * ($r.Voll / $hMax)
+                if ($bh -lt 1) { $bh = 1 }
+                $bx = $hpadL + ($hplotW * $i / [double]$healthRows.Count)
+                $by = $hpadT + $hplotH - $bh
+                $tt = '{0}  -  {1:N1} Wh' -f $r.Datum.ToString('dd.MM.yyyy'), $r.Voll
+                [void]$hsvg.AppendLine(("  <rect x=`"{0:0.##}`" y=`"{1:0.##}`" width=`"{2:0.##}`" height=`"{3:0.##}`" fill=`"#3c82dc`"><title>{4}</title></rect>" -f `
+                    $bx, $by, [Math]::Max(1.5, $hbarW - 0.5), $bh, (Encode-Html $tt)))
+            }
+            [void]$hsvg.AppendLine(("  <text x=`"$hpadL`" y=`"{0}`" class=`"xlab`">{1}</text>" -f ($hh - 8), $first.Datum.ToString('dd.MM.yyyy')))
+            [void]$hsvg.AppendLine(("  <text x=`"{0}`" y=`"{1}`" class=`"xlab end`">{2}</text>" -f ($hpadL + $hplotW), ($hh - 8), $last.Datum.ToString('dd.MM.yyyy')))
+            [void]$hsvg.AppendLine('</svg>')
+            [void]$html.AppendLine('<div class="scroll">')
+            [void]$html.AppendLine($hsvg.ToString())
+            [void]$html.AppendLine('</div>')
+
+            $healthPercent = 0
+            if ($last.Neu -gt 0) { $healthPercent = [int][Math]::Round(100.0 * $last.Voll / $last.Neu) }
+            $lossText = ''
+            if ($healthRows.Count -gt 1 -and $first.Voll -gt 0) {
+                $diff = [Math]::Round($first.Voll - $last.Voll, 1)
+                $days = [int](($last.Datum - $first.Datum).TotalDays)
+                if ($days -gt 0) {
+                    $lossText = ' In {0} Tagen Aufzeichnung: {1:N1} Wh Unterschied.' -f $days, $diff
+                }
+            }
+            [void]$html.AppendLine(("<p class=`"note`">Aktuell {0:N1} Wh von {1:N1} Wh im Neuzustand - das sind <strong>{2} %</strong>.{3}{4}</p>" -f `
+                $last.Voll, $last.Neu, $healthPercent, $lossText,
+                $(if ($last.Zyklen -gt 0) { " Ladezyklen: $($last.Zyklen)." } else { '' })))
+            [void]$html.AppendLine('<p class="note">Die Kapazitaet wird einmal taeglich festgehalten. Kurzfristige Schwankungen sind normal - aussagekraeftig wird die Kurve erst nach einigen Monaten.</p>')
+            [void]$html.AppendLine('</div>')
+        }
+    } catch { }
+}
 
 [void]$html.AppendLine('</div></body></html>')
 

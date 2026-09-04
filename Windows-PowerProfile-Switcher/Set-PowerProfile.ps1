@@ -15,7 +15,7 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Gaming', 'Balanced', 'Travel')]
+    [ValidateSet('Gaming', 'Balanced', 'Travel', 'Video')]
     [string]$Mode,
 
     [switch]$NoNotify,
