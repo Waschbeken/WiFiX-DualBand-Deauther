@@ -12,8 +12,9 @@ Eine kleine Windows-11-App für den **XMG Neo 16 (E25)**, mit der du per
 Kein Zusatzprogramm nötig – die App besteht nur aus PowerShell-Skripten,
 die bereits in Windows 11 enthaltene Bordmittel nutzen (`powercfg`,
 Bildschirmhelligkeit über WMI, `pnputil` für die GPU, die native
-Windows-Anzeige-API für die Bildwiederholrate). Es wird nichts aus dem
-Internet nachgeladen und keine Fremdsoftware installiert.
+Windows-Anzeige-API für die Bildwiederholrate). Es wird keine Fremdsoftware
+installiert; die einzige Internetverbindung entsteht, wenn du im Tray-Menü
+selbst „Nach Updates suchen" anklickst.
 
 ## GPU-Umschaltung (nur integrierte Grafik im Unterwegs-Profil)
 
