@@ -47,6 +47,44 @@ Monitor als Hauptbildschirm eingestellt ist, meldet die App das per
 Warnung in der Konsole, ohne das Umschalten der übrigen Einstellungen zu
 verhindern.
 
+## Watt-Zähler & Akku-Hochrechnung
+
+Damit du siehst, **wie viel ein Profil tatsächlich bringt**, misst die App
+den echten Verbrauch:
+
+- **Beim Profilwechsel** (nur im Akkubetrieb): 4 Sekunden Einpendeln,
+  dann 4 Messpunkte über ~8 Sekunden. Anschließend erscheint eine zweite
+  Benachrichtigung, z. B.:
+  *„12,4 W – Akku (78 %) reicht noch ca. 4 h 55 min, bei 100 % ca. 6 h 20 min.
+  Zuletzt gemessen – Gaming: 31,7 W, Ausgeglichen: 18,2 W"*
+- **Laufend im Tray**: Das Tray-Menü hat oben eine Zeile mit dem aktuellen
+  Verbrauch und der Restlaufzeit (gleitender Mittelwert der letzten 8
+  Messungen, alle 15 s aktualisiert). Auch der Tooltip zeigt
+  `Unterwegs - 12,4 W, ~4 h 55 min`.
+- **Klick auf diese Zeile** öffnet eine Detailansicht mit Ladestand,
+  Verbrauch, Restlaufzeit, Hochrechnung bei vollem Akku, **Akku-Zustand**
+  (aktuelle vs. ursprüngliche Kapazität), Ladezyklen und einer
+  **Vergleichstabelle aller drei Profile** – damit hast du direkt die
+  Einschätzung, wie effektiv das Unterwegs-Profil gegenüber Gaming ist.
+
+Woher die Daten kommen: die Windows-eigenen WMI-Klassen `BatteryStatus`,
+`BatteryFullChargedCapacity` und `BatteryStaticData` (Namespace
+`root\WMI`) liefern die momentane Entladerate in mW und die
+Restkapazität in mWh. Restlaufzeit = Restkapazität ÷ Entladerate.
+
+Einschränkungen, die man kennen sollte:
+
+- **Nur im Akkubetrieb messbar** – am Netzteil fließt kein Entladestrom.
+  Am Netz zeigt die App deshalb „Am Netzteil" statt einer Wattzahl.
+- Der Messwert ist eine **Momentaufnahme kurz nach dem Umschalten**, also
+  im Wesentlichen der Ruheverbrauch. Beim Zocken liegt der reale
+  Verbrauch deutlich höher – der Vergleich zwischen den Profilen bleibt
+  aber aussagekräftig, weil er unter gleichen Bedingungen entsteht.
+- Manche Akku-Firmware meldet keine Entladerate; dann steht dort
+  „Verbrauch nicht messbar" statt einer Schätzung.
+- Die Messwerte pro Profil liegen in
+  `%LOCALAPPDATA%\PowerProfileSwitcher\metrics.json`.
+
 ## Spar- und Boost-Optionen im Detail
 
 Diese Werte setzt die App pro Profil, jeweils getrennt für Netzbetrieb
@@ -189,6 +227,10 @@ gelöscht.
 
 - `Set-PowerProfile.ps1 -Mode Gaming|Balanced|Travel` ist das eigentliche
   Kernskript und kann auch direkt (mit Adminrechten) aufgerufen werden.
+  Ein benannter Mutex verhindert, dass zwei Profilwechsel gleichzeitig
+  laufen und sich gegenseitig überschreiben.
+- `PowerMetrics.ps1` enthält die Mess-Funktionen (Watt, Restlaufzeit,
+  Akku-Zustand) und wird von beiden Skripten eingebunden.
 - `Install.ps1` legt drei geplante Aufgaben (Taskplaner) mit
   **"Mit höchsten Rechten ausführen"** an. Windows erlaubt es, eine so
   konfigurierte Aufgabe ohne erneuten UAC-Dialog auszulösen (sofern das

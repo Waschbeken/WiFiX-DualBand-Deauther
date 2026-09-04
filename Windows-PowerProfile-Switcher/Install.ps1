@@ -37,7 +37,7 @@ $UserId     = "$env:USERDOMAIN\$env:USERNAME"
 Write-Info "Installiere nach $InstallDir ..."
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
-foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'Uninstall.ps1') {
+foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 

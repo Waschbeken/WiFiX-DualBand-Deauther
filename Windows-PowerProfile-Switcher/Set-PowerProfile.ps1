@@ -106,6 +106,11 @@ if (-not (Test-Path $StateDir)) {
     New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
 }
 
+# Funktionen zur Verbrauchsmessung (Watt / Restlaufzeit) einbinden.
+$MetricsScript = Join-Path $PSScriptRoot 'PowerMetrics.ps1'
+$MetricsAvailable = Test-Path $MetricsScript
+if ($MetricsAvailable) { . $MetricsScript }
+
 # --------------------------------------------------------------------------
 # Hilfsfunktionen
 # --------------------------------------------------------------------------
@@ -341,6 +346,19 @@ $WirelessSetting  = '12bbebe6-58d6-4636-95bb-3217ef867c1a'
 # Profile anwenden
 # --------------------------------------------------------------------------
 
+# Verhindert, dass zwei Profilwechsel gleichzeitig laufen (z.B. schnelles
+# Klicken auf zwei Verknuepfungen) und sich gegenseitig ueberschreiben.
+$applyMutex = New-Object System.Threading.Mutex($false, 'PowerProfileSwitcher.Apply')
+$mutexHeld  = $false
+try {
+    $mutexHeld = $applyMutex.WaitOne(60000)
+} catch [System.Threading.AbandonedMutexException] {
+    # Vorheriger Lauf wurde hart beendet - wir besitzen die Sperre trotzdem.
+    $mutexHeld = $true
+} catch {
+    $mutexHeld = $false
+}
+
 switch ($Mode) {
 
     'Gaming' {
@@ -457,3 +475,48 @@ switch ($Mode) {
 }
 
 Save-CurrentMode -ModeName $Mode
+
+# --------------------------------------------------------------------------
+# Verbrauchsmessung: wie viel Watt zieht der Laptop mit diesem Profil und
+# wie lange haelt der Akku damit ungefaehr? Nur im Akkubetrieb moeglich -
+# am Netzteil fliesst kein Entladestrom, den man messen koennte.
+# --------------------------------------------------------------------------
+if ($MetricsAvailable) {
+    $reading = Get-BatteryReading
+
+    if (-not $reading) {
+        Write-Info 'Kein Akku gefunden - Verbrauchsmessung uebersprungen.'
+    } elseif ($reading.OnAc) {
+        Write-Info 'Am Netzteil - Verbrauchsmessung nur im Akkubetrieb moeglich.'
+    } else {
+        # Kurz warten, bis sich der Verbrauch nach dem Umschalten eingependelt hat
+        Start-Sleep -Seconds $MetricsSettleSeconds
+        $watt = Measure-PowerDraw
+
+        if (-not $watt) {
+            Write-Warning 'Windows meldet keine Entladerate - Verbrauch nicht messbar.'
+        } else {
+            $after = Get-BatteryReading
+            if (-not $after) { $after = $reading }
+
+            $restText = Format-Duration -Hours ($after.RemainingWh / $watt)
+            $fullText = Format-Duration -Hours ($after.FullWh / $watt)
+
+            Save-ProfileMetrics -ModeName $Mode -Watt $watt -FullWh $after.FullWh
+
+            $message = "{0:N1} W - Akku ({1} %) reicht noch ca. {2}, bei 100 % ca. {3}." -f `
+                $watt, $after.Percent, $restText, $fullText
+
+            $comparison = Get-MetricsComparison -ExcludeMode $Mode
+            if ($comparison) { $message = "$message`n$comparison" }
+
+            Write-Info $message
+            Show-Notification -Title "$(E 0x26A1) Verbrauch: $watt W" -Message $message
+        }
+    }
+}
+
+if ($mutexHeld) {
+    try { $applyMutex.ReleaseMutex() } catch { }
+}
+$applyMutex.Dispose()
