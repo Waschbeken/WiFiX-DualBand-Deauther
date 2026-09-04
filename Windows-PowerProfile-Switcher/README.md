@@ -47,6 +47,36 @@ Monitor als Hauptbildschirm eingestellt ist, meldet die App das per
 Warnung in der Konsole, ohne das Umschalten der übrigen Einstellungen zu
 verhindern.
 
+## Spar- und Boost-Optionen im Detail
+
+Diese Werte setzt die App pro Profil, jeweils getrennt für Netzbetrieb
+(AC) und Akkubetrieb (DC):
+
+| Einstellung | Was sie bewirkt | Gaming (AC/DC) | Unterwegs (AC/DC) |
+|---|---|---|---|
+| `PROCTHROTTLEMIN` / `PROCTHROTTLEMAX` | Min./Max. CPU-Takt in % | 100/20 – 100/100 | 5/5 – 100/60 |
+| `PERFBOOSTMODE` | **Turbo/Boost-Modus**: 0=aus, 1=ein, 2=aggressiv, 3/4=effiziente Varianten | 2/1 | 1/**0 (aus)** |
+| `PERFBOOSTPOL` | **Boost-Bereitschaft** 0–100: wie schnell/oft der Turbo greift | 100/60 | 50/0 |
+| `PERFEPP` | **Energy Performance Preference** 0–100 (0 = volle Leistung, 100 = maximale Effizienz). Der eigentliche Regler hinter Windows' Leistungs-Schieber auf modernen Intel-CPUs | 0/25 | 50/**100** |
+| `CPMINCORES` / `CPMAXCORES` | **Core Parking**: wie viele Kerne wach bleiben müssen/dürfen | 100/20 – 100/100 | 10/5 – 100/**50** |
+| `RTCWAKE` | **Aufwachtimer**: verhindert im Unterwegs-Profil, dass der Laptop in der Tasche von selbst aufwacht (häufigste Ursache für leeren Akku + Hitze) | 1/1 (erlaubt) | 1/**0 (aus)** |
+| `ESBATTTHRESHOLD` | Ab wie viel % Akku Windows' **Energiesparmodus** automatisch anspringt | –/20 % | –/**100 % (immer an)** |
+| `ASPM` (PCIe) | Stromsparen der PCIe-Verbindungen: 0=aus, 1=moderat, 2=maximal | 0/1 | 1/2 |
+| `USBSELECTSUSPEND` | USB-Geräte im Leerlauf schlafen legen | aus/an | an/an |
+| WLAN-Sparmodus | 0=max. Leistung … 3=max. Einsparung | 0/1 | 2/3 |
+| `DISKIDLE`, `VIDEOIDLE`, `STANDBYIDLE`, `HIBERNATEIDLE` | Zeiten (Sekunden) bis Platte/Bildschirm/Standby/Ruhezustand, 0 = nie | 0/… | 600/180 … |
+
+Nicht unterstützte Einstellungen (je nach CPU/Treiber) werden automatisch
+übersprungen, ohne den Rest des Profils zu blockieren – das Skript
+probiert dabei sowohl den Kurznamen als auch die GUID der Einstellung.
+
+**Noch nicht enthalten** (bewusst, weil riskant oder nicht zuverlässig
+skriptbar): eine feste MHz-Obergrenze (`PROCFREQMAX`), das
+Umschalten des Windows-Leistungsschiebers selbst (dessen "Overlay"-Modus
+ist nicht offiziell dokumentiert – die App setzt stattdessen direkt EPP,
+was denselben Effekt hat), sowie Lüfterkurven, Akku-Ladelimit und
+Undervolting (nur über XMG Control Center bzw. BIOS).
+
 ## Was die App NICHT steuert
 
 Lüfterkurven, RGB-Beleuchtung und das Akku-Ladelimit sind proprietär und
