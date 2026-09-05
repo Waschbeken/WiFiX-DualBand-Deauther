@@ -52,11 +52,7 @@ trap {
         "FEHLER: $_"                     | Add-Content -Path $LogPath -Encoding UTF8
         "$($_.ScriptStackTrace)"         | Add-Content -Path $LogPath -Encoding UTF8
     } catch { }
-    try { Write-Host ''
-Write-Host " Deinstallieren spaeter: $InstallDir\Deinstallieren.bat" -ForegroundColor DarkGray
-Write-Host " Protokoll dieser Installation: $LogPath" -ForegroundColor DarkGray
-Write-Host ''
-try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 } | Out-Null } catch { Start-Sleep -Seconds 20 }
+    try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 }
     exit 1
 }
 
@@ -72,11 +68,7 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     if (-not (Test-Path $scriptPath)) {
         Write-Host "Das Skript konnte sich selbst nicht finden ($scriptPath)." -ForegroundColor Red
         Write-Host 'Bitte den Ordner entpacken und "Installieren.bat" per Doppelklick starten.' -ForegroundColor Yellow
-        try { Write-Host ''
-Write-Host " Deinstallieren spaeter: $InstallDir\Deinstallieren.bat" -ForegroundColor DarkGray
-Write-Host " Protokoll dieser Installation: $LogPath" -ForegroundColor DarkGray
-Write-Host ''
-try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 } | Out-Null } catch { Start-Sleep -Seconds 20 }
+        try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 }
         exit 1
     }
 
@@ -94,29 +86,43 @@ try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep
         Write-Host ''
         Write-Host 'Alternative: PowerShell als Administrator oeffnen und dort ausfuehren:' -ForegroundColor Yellow
         Write-Host "  powershell -ExecutionPolicy Bypass -File `"$scriptPath`"" -ForegroundColor Yellow
-        try { Write-Host ''
-Write-Host " Deinstallieren spaeter: $InstallDir\Deinstallieren.bat" -ForegroundColor DarkGray
-Write-Host " Protokoll dieser Installation: $LogPath" -ForegroundColor DarkGray
-Write-Host ''
-try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 } | Out-Null } catch { Start-Sleep -Seconds 20 }
+        try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 }
         exit 1
     }
 }
 
-$SourceDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SourceDir  = $PSScriptRoot
+if (-not $SourceDir) { $SourceDir = Split-Path -Parent $scriptPath }
+if (-not $SourceDir) { $SourceDir = (Get-Location).Path }
 $InstallDir = Join-Path $env:LOCALAPPDATA 'PowerProfileSwitcher'
 $UserId     = "$env:USERDOMAIN\$env:USERNAME"
 
 Write-Info "Installiere nach $InstallDir ..."
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
-foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 'Profiles.ps1',
-                  'Test-PowerProfile.ps1', 'New-PowerReport.ps1', 'Update-PowerProfile.ps1',
-                  'Test-PowerPerformance.ps1', 'Show-PowerSettings.ps1', 'PowerBench.ps1',
-                  'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Watchdog-Tray.ps1',
-                  'PowerDisplay.ps1', 'Reset-PowerProfile.ps1', 'Show-PowerStatus.ps1',
-                  'Backup-PowerConfig.ps1', 'Set-PowerBackground.ps1', 'Show-PowerWindow.ps1',
-                  'Launcher.cs', 'Uninstall.ps1') {
+$FilesToCopy = @('Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 'Profiles.ps1',
+                 'Test-PowerProfile.ps1', 'New-PowerReport.ps1', 'Update-PowerProfile.ps1',
+                 'Test-PowerPerformance.ps1', 'Show-PowerSettings.ps1', 'PowerBench.ps1',
+                 'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Watchdog-Tray.ps1',
+                 'PowerDisplay.ps1', 'Reset-PowerProfile.ps1', 'Show-PowerStatus.ps1',
+                 'Backup-PowerConfig.ps1', 'Set-PowerBackground.ps1', 'Show-PowerWindow.ps1',
+                 'Launcher.cs', 'Uninstall.ps1')
+
+# Erst pruefen, ob wirklich alles da ist. Ein halb entpacktes ZIP soll eine
+# klare Meldung geben und nicht mitten in der Einrichtung abbrechen.
+$missing = @($FilesToCopy | Where-Object { -not (Test-Path (Join-Path $SourceDir $_)) })
+if ($missing.Count -gt 0) {
+    Write-Host ''
+    Write-Host "Im Ordner '$SourceDir' fehlen Dateien:" -ForegroundColor Red
+    foreach ($m in $missing) { Write-Host "  - $m" -ForegroundColor Red }
+    Write-Host ''
+    Write-Host 'Bitte das ZIP komplett entpacken (Rechtsklick > Alle extrahieren) und' -ForegroundColor Yellow
+    Write-Host '"Installieren.bat" aus dem entpackten Ordner starten - nicht aus dem ZIP heraus.' -ForegroundColor Yellow
+    try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 }
+    exit 1
+}
+
+foreach ($file in $FilesToCopy) {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 
