@@ -10,9 +10,10 @@ Eine kleine Windows-11-App für den **XMG Neo 16 (E25)**, mit der du per
 | 🔋 **Unterwegs** | Akku soll möglichst lange halten | CPU gedrosselt, Bildschirm/Standby schalten früh ab, WLAN im Sparmodus, Helligkeit 35 %, **60 Hz**, **dedizierte GPU wird deaktiviert (nur integrierte Grafik)** |
 | 🎬 **Video / Streaming** | Film schauen, Präsentation | Bildschirm geht **nie** von selbst aus, CPU sparsam ohne Turbo, 60 Hz, Helligkeit 55 %, GPU wird nicht angefasst |
 
-Bedient wird alles über **ein Programmfenster** (Desktop-Verknüpfung
-„PowerProfile Switcher") – Profile umschalten, alles einstellen, alle
-Werkzeuge starten. Das Fenster läuft nur, solange es offen ist; danach
+Bedient wird alles über **ein Programmfenster** – auf dem Desktop liegt
+dafür eine echte **`PowerProfile Switcher.exe`** mit eigenem Symbol, die
+sich auch an die Taskleiste anheften lässt. Profile umschalten, alles
+einstellen, alle Werkzeuge starten. Das Fenster läuft nur, solange es offen ist; danach
 bleibt **kein Prozess der App zurück**. Zusätzlich gibt es je eine
 Verknüpfung pro Profil zum Direkt-Umschalten.
 
@@ -131,6 +132,38 @@ Wer das will:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Install.ps1 -WithTray
 ```
+
+## Die EXE auf dem Desktop
+
+`Install.ps1` übersetzt beim Einrichten ein kleines Startprogramm mit dem
+**C#-Compiler, der zum .NET Framework von Windows gehört** (`csc.exe`) –
+es wird nichts heruntergeladen und nichts zusätzlich installiert. Das
+Ergebnis landet als `PowerProfile Switcher.exe` direkt auf dem Desktop,
+inklusive selbst erzeugtem Symbol.
+
+Die EXE kann zweierlei:
+
+```
+PowerProfile Switcher.exe            öffnet das Programmfenster
+PowerProfile Switcher.exe Travel     schaltet direkt auf "Unterwegs"
+```
+
+Der Installationspfad wird beim Übersetzen fest eingetragen, deshalb
+funktioniert sie auch, wenn du sie verschiebst oder kopierst.
+
+Zwei Dinge dazu ehrlich gesagt:
+
+- Die EXE ist **nicht signiert**. Windows SmartScreen kann beim ersten
+  Start „Unbekannter Herausgeber" melden – dann auf *Weitere
+  Informationen → Trotzdem ausführen*. Eine Signatur bräuchte ein
+  gekauftes Zertifikat.
+- Sie startet intern weiterhin PowerShell. **Für Anti-Cheat ändert die
+  EXE also nichts** – entscheidend bleibt, dass beim Spielen nichts von
+  der App läuft.
+
+Klappt das Übersetzen nicht (z. B. weil das .NET Framework fehlt), legt
+die Installation automatisch stattdessen eine normale Verknüpfung an –
+funktional identisch.
 
 ## Anti-Cheat: wenn Spiele nicht mehr starten
 
@@ -632,11 +665,24 @@ Neo 16 verwendet wird.
 
 ## Deinstallation
 
-`Uninstall.ps1` per Rechtsklick → **Mit PowerShell ausführen**. Entfernt
-alle geplanten Aufgaben, Verknüpfungen, das Tray-Icon und setzt das
-aktive Energieschema auf "Ausbalanciert" zurück. Optional werden auch die
-selbst angelegten Energieschemata ("XMG Gaming", "XMG Unterwegs")
-gelöscht.
+`Uninstall.ps1` per Rechtsklick → **Mit PowerShell ausführen** (nimm die
+Datei aus dem **aktuellen** Paket, sie kennt alle Aufgabennamen). Entfernt:
+
+- alle geplanten Aufgaben (`PowerProfileSwitcher-Gaming`, `-Balanced`,
+  `-Travel`, `-Video`, `-Travel-NoGpu`, `-Tray`, `-Watchdog`)
+- alle Verknüpfungen auf dem Desktop, die EXE und den Startmenü-Ordner
+- den Ordner `%LOCALAPPDATA%\PowerProfileSwitcher` samt **allen Messdaten**
+- gibt pausierte Dienste wieder frei und setzt das Energieschema auf
+  „Ausbalanciert" zurück; auf Nachfrage löscht es auch die selbst
+  angelegten Schemata („XMG Gaming", „XMG Unterwegs", „XMG Video")
+
+> Messdaten behalten? Vorher im Programmfenster unter **Werkzeuge →
+> Konfiguration sichern** eine ZIP-Datei anlegen.
+
+**Nur die alte Version loswerden, ohne alles zu verlieren:** Einfach die
+neue `Install.ps1` ausführen. Sie überschreibt alle Skripte, entfernt das
+alte Tray-Icon samt Überwachung und legt die EXE an – Messdaten und
+Anpassungen bleiben erhalten.
 
 ## Technischer Hintergrund
 

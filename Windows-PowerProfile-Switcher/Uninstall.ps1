@@ -44,7 +44,8 @@ foreach ($task in 'PowerProfileSwitcher-Gaming', 'PowerProfileSwitcher-Balanced'
 # --- Verknuepfungen entfernen --------------------------------------------
 $Desktop = [Environment]::GetFolderPath('Desktop')
 foreach ($name in 'Gaming - Hoechstleistung.lnk', 'Ausgeglichen.lnk', 'Unterwegs - Akku sparen.lnk',
-                  'Video - Bildschirm bleibt an.lnk', 'PowerProfile Switcher.lnk') {
+                  'Video - Bildschirm bleibt an.lnk', 'PowerProfile Switcher.lnk',
+                  'PowerProfile Switcher.exe') {
     $path = Join-Path $Desktop $name
     if (Test-Path $path) {
         Write-Info "Entferne Verknuepfung '$name' ..."

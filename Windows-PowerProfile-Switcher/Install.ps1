@@ -59,7 +59,7 @@ foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 
                   'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Watchdog-Tray.ps1',
                   'PowerDisplay.ps1', 'Reset-PowerProfile.ps1', 'Show-PowerStatus.ps1',
                   'Backup-PowerConfig.ps1', 'Set-PowerBackground.ps1', 'Show-PowerWindow.ps1',
-                  'Uninstall.ps1') {
+                  'Launcher.cs', 'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 
@@ -198,6 +198,116 @@ function New-ProfileShortcut {
     $shortcut.Save()
 }
 
+# --- Symboldatei erzeugen (Kreis mit Ein-/Aus-Zeichen) -------------------
+# Wird als Icon der EXE verwendet. Geschrieben wird eine ICO-Datei mit
+# mehreren Groessen, jede als PNG - das versteht Windows seit Vista.
+function New-AppIcon {
+    param([string]$Path)
+
+    Add-Type -AssemblyName System.Drawing
+
+    $sizes = @(16, 32, 48, 64)
+    $images = @()
+    foreach ($size in $sizes) {
+        $bmp = New-Object System.Drawing.Bitmap $size, $size
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        try {
+            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $g.Clear([System.Drawing.Color]::Transparent)
+
+            $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(45, 105, 200))
+            $g.FillEllipse($brush, 0, 0, ($size - 1), ($size - 1))
+
+            # Ein-/Aus-Zeichen: offener Kreis plus senkrechter Strich
+            $penWidth = [Math]::Max(1.5, $size / 10.0)
+            $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), $penWidth
+            $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+            $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+
+            $inset = $size * 0.28
+            $box = New-Object System.Drawing.RectangleF $inset, $inset, ($size - 2 * $inset), ($size - 2 * $inset)
+            $g.DrawArc($pen, $box, -60, 300)
+            $g.DrawLine($pen, ($size / 2.0), ($size * 0.20), ($size / 2.0), ($size * 0.48))
+
+            $stream = New-Object System.IO.MemoryStream
+            $bmp.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+            $images += ,$stream.ToArray()
+            $stream.Dispose()
+        } finally {
+            $g.Dispose()
+            $bmp.Dispose()
+        }
+    }
+
+    # ICO-Datei zusammensetzen: Kopf, je ein Eintrag, dann die PNG-Daten
+    $writer = New-Object System.IO.BinaryWriter([System.IO.File]::Create($Path))
+    try {
+        $writer.Write([UInt16]0)                    # reserviert
+        $writer.Write([UInt16]1)                    # Typ: Symbol
+        $writer.Write([UInt16]$images.Count)
+
+        $offset = 6 + (16 * $images.Count)
+        for ($i = 0; $i -lt $images.Count; $i++) {
+            $size = $sizes[$i]
+            $writer.Write([byte]($(if ($size -ge 256) { 0 } else { $size })))   # Breite
+            $writer.Write([byte]($(if ($size -ge 256) { 0 } else { $size })))   # Hoehe
+            $writer.Write([byte]0)                  # Farben in der Palette
+            $writer.Write([byte]0)                  # reserviert
+            $writer.Write([UInt16]1)                # Ebenen
+            $writer.Write([UInt16]32)               # Bits je Bildpunkt
+            $writer.Write([UInt32]$images[$i].Length)
+            $writer.Write([UInt32]$offset)
+            $offset += $images[$i].Length
+        }
+        foreach ($data in $images) { $writer.Write($data) }
+    } finally {
+        $writer.Close()
+    }
+}
+
+# --- Startprogramm (EXE) uebersetzen -------------------------------------
+# Benutzt den C#-Compiler, der zum .NET Framework von Windows gehoert -
+# es wird nichts heruntergeladen und nichts zusaetzlich installiert.
+function New-LauncherExe {
+    param([string]$InstallDir, [string]$IconPath)
+
+    $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    if (-not (Test-Path $csc)) {
+        $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
+    }
+    if (-not (Test-Path $csc)) {
+        Write-Warning 'Der C#-Compiler von Windows wurde nicht gefunden - es wird nur eine Verknuepfung angelegt.'
+        return $null
+    }
+
+    $source = Join-Path $InstallDir 'Launcher.cs'
+    if (-not (Test-Path $source)) { return $null }
+
+    # Installationspfad fest einsetzen, damit die EXE auch vom Desktop aus laeuft
+    $prepared = Join-Path $InstallDir 'Launcher.generated.cs'
+    (Get-Content $source -Raw).Replace('__INSTALL_DIR__', $InstallDir) |
+        Set-Content -Path $prepared -Encoding UTF8
+
+    $exePath = Join-Path $InstallDir 'PowerProfileSwitcher.exe'
+    $arguments = @(
+        '/nologo', '/target:winexe', '/optimize+',
+        "/out:$exePath",
+        '/reference:System.dll', '/reference:System.Windows.Forms.dll'
+    )
+    if ($IconPath -and (Test-Path $IconPath)) { $arguments += "/win32icon:$IconPath" }
+    $arguments += $prepared
+
+    try {
+        $output = & $csc @arguments 2>&1 | Out-String
+        Remove-Item $prepared -Force -ErrorAction SilentlyContinue
+        if (Test-Path $exePath) { return $exePath }
+        Write-Warning "Das Startprogramm konnte nicht uebersetzt werden: $output"
+    } catch {
+        Write-Warning "Das Startprogramm konnte nicht uebersetzt werden: $_"
+    }
+    return $null
+}
+
 function New-AppShortcut {
     param([string]$Path, [string]$Target, [string]$Description)
 
@@ -215,11 +325,36 @@ $StartMenuDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'PowerProfi
 New-Item -ItemType Directory -Path $StartMenuDir -Force | Out-Null
 
 # Hauptfenster - der uebliche Weg, die App zu bedienen
-Write-Info 'Erstelle Verknuepfung fuer das Programmfenster ...'
+Write-Info 'Erstelle Startprogramm fuer das Fenster ...'
 $windowScript = Join-Path $InstallDir 'Show-PowerWindow.ps1'
-foreach ($dir in $Desktop, $StartMenuDir) {
-    New-AppShortcut -Path (Join-Path $dir 'PowerProfile Switcher.lnk') -Target $windowScript `
-        -Description 'PowerProfile Switcher - Profile umschalten und einstellen'
+$iconPath     = Join-Path $InstallDir 'PowerProfileSwitcher.ico'
+
+try { New-AppIcon -Path $iconPath } catch { Write-Warning "Symbol konnte nicht erzeugt werden: $_" }
+$exePath = New-LauncherExe -InstallDir $InstallDir -IconPath $iconPath
+
+if ($exePath) {
+    # Echte EXE - kommt direkt auf den Desktop und ins Startmenue.
+    $desktopExe = Join-Path $Desktop 'PowerProfile Switcher.exe'
+    try {
+        Copy-Item -Path $exePath -Destination $desktopExe -Force
+        Write-Info "Startprogramm liegt auf dem Desktop: $desktopExe"
+    } catch {
+        Write-Warning "Die EXE konnte nicht auf den Desktop kopiert werden: $_"
+    }
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $shell.CreateShortcut((Join-Path $StartMenuDir 'PowerProfile Switcher.lnk'))
+    $link.TargetPath = $exePath
+    $link.Description = 'PowerProfile Switcher - Profile umschalten und einstellen'
+    $link.Save()
+
+    # Alte Verknuepfung aus frueheren Versionen entfernen
+    Remove-Item (Join-Path $Desktop 'PowerProfile Switcher.lnk') -Force -ErrorAction SilentlyContinue
+} else {
+    # Rueckfallebene: Verknuepfung auf das Skript
+    foreach ($dir in $Desktop, $StartMenuDir) {
+        New-AppShortcut -Path (Join-Path $dir 'PowerProfile Switcher.lnk') -Target $windowScript `
+            -Description 'PowerProfile Switcher - Profile umschalten und einstellen'
+    }
 }
 
 Write-Info 'Erstelle Verknuepfungen auf Desktop und im Startmenue ...'
@@ -245,7 +380,8 @@ Write-Host ''
 Write-Host '===========================================================' -ForegroundColor Green
 Write-Host ' Installation abgeschlossen!' -ForegroundColor Green
 Write-Host ' Auf dem Desktop liegt jetzt "PowerProfile Switcher" - das' -ForegroundColor Green
-Write-Host ' Programmfenster mit allen Profilen, Einstellungen und Werkzeugen.' -ForegroundColor Green
+Write-Host ' Programm mit eigenem Symbol, das du auch an die Taskleiste' -ForegroundColor Green
+Write-Host ' anheften kannst.' -ForegroundColor Green
 Write-Host ''
 Write-Host ' Zusaetzlich je eine Verknuepfung zum Direkt-Umschalten:' -ForegroundColor Green
 foreach ($p in $ProfileDefinitions.Keys) {
