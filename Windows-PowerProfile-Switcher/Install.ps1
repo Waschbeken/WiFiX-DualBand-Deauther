@@ -32,18 +32,75 @@ param(
 $installTray = $WithTray -and -not $NoTray
 
 $ErrorActionPreference = 'Stop'
+$LogPath = Join-Path $env:TEMP 'PowerProfileSwitcher-Install.log'
 
-function Write-Info($Text) { Write-Host "[Install] $Text" -ForegroundColor Cyan }
+function Write-Info($Text) {
+    Write-Host "[Install] $Text" -ForegroundColor Cyan
+    try { "$(Get-Date -Format 'HH:mm:ss')  $Text" | Add-Content -Path $LogPath -Encoding UTF8 } catch { }
+}
+
+# Faengt jeden abbrechenden Fehler ab, damit das Fenster nicht kommentarlos
+# zugeht - genau das macht Fehlersuche sonst unmoeglich.
+trap {
+    Write-Host ''
+    Write-Host 'Bei der Installation ist ein Fehler aufgetreten:' -ForegroundColor Red
+    Write-Host "  $_" -ForegroundColor Red
+    Write-Host "  $($_.ScriptStackTrace)" -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host "Protokoll: $LogPath" -ForegroundColor DarkGray
+    try {
+        "FEHLER: $_"                     | Add-Content -Path $LogPath -Encoding UTF8
+        "$($_.ScriptStackTrace)"         | Add-Content -Path $LogPath -Encoding UTF8
+    } catch { }
+    try { Write-Host ''
+Write-Host " Deinstallieren spaeter: $InstallDir\Deinstallieren.bat" -ForegroundColor DarkGray
+Write-Host " Protokoll dieser Installation: $LogPath" -ForegroundColor DarkGray
+Write-Host ''
+try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 } | Out-Null } catch { Start-Sleep -Seconds 20 }
+    exit 1
+}
+
+try { "=== $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Add-Content -Path $LogPath -Encoding UTF8 } catch { }
 
 # --- Selbst-Elevation -------------------------------------------------
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host 'Starte erneut mit Administratorrechten ...'
-    $scriptPath = $MyInvocation.MyCommand.Path
+    $scriptPath = $PSCommandPath
+    if (-not $scriptPath) { $scriptPath = $MyInvocation.MyCommand.Path }
+    if (-not $scriptPath) { $scriptPath = Join-Path (Get-Location).Path 'Install.ps1' }
+
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "Das Skript konnte sich selbst nicht finden ($scriptPath)." -ForegroundColor Red
+        Write-Host 'Bitte den Ordner entpacken und "Installieren.bat" per Doppelklick starten.' -ForegroundColor Yellow
+        try { Write-Host ''
+Write-Host " Deinstallieren spaeter: $InstallDir\Deinstallieren.bat" -ForegroundColor DarkGray
+Write-Host " Protokoll dieser Installation: $LogPath" -ForegroundColor DarkGray
+Write-Host ''
+try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 } | Out-Null } catch { Start-Sleep -Seconds 20 }
+        exit 1
+    }
+
+    Write-Host 'Fuer die Einrichtung sind Administratorrechte noetig - bitte die Abfrage von Windows bestaetigen.'
     $installArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`"")
     if ($WithTray) { $installArgs += '-WithTray' }
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $installArgs
-    exit
+
+    try {
+        Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $installArgs -ErrorAction Stop
+        exit 0
+    } catch {
+        Write-Host ''
+        Write-Host 'Der Start mit Administratorrechten wurde abgebrochen oder ist fehlgeschlagen:' -ForegroundColor Red
+        Write-Host "  $_" -ForegroundColor Red
+        Write-Host ''
+        Write-Host 'Alternative: PowerShell als Administrator oeffnen und dort ausfuehren:' -ForegroundColor Yellow
+        Write-Host "  powershell -ExecutionPolicy Bypass -File `"$scriptPath`"" -ForegroundColor Yellow
+        try { Write-Host ''
+Write-Host " Deinstallieren spaeter: $InstallDir\Deinstallieren.bat" -ForegroundColor DarkGray
+Write-Host " Protokoll dieser Installation: $LogPath" -ForegroundColor DarkGray
+Write-Host ''
+try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 } | Out-Null } catch { Start-Sleep -Seconds 20 }
+        exit 1
+    }
 }
 
 $SourceDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -61,6 +118,12 @@ foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 
                   'Backup-PowerConfig.ps1', 'Set-PowerBackground.ps1', 'Show-PowerWindow.ps1',
                   'Launcher.cs', 'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
+}
+
+# Doppelklick-Starter fuer die Deinstallation mit ablegen
+$uninstallBat = Join-Path $SourceDir 'Deinstallieren.bat'
+if (Test-Path $uninstallBat) {
+    Copy-Item -Path $uninstallBat -Destination (Join-Path $InstallDir 'Deinstallieren.bat') -Force
 }
 
 # Einmalig die urspruenglichen Energieeinstellungen sichern, bevor die App
@@ -400,4 +463,8 @@ if ($installTray) {
 }
 Write-Host '===========================================================' -ForegroundColor Green
 Write-Host ''
-Read-Host 'Enter druecken zum Schliessen'
+Write-Host ''
+Write-Host " Deinstallieren spaeter: $InstallDir\Deinstallieren.bat" -ForegroundColor DarkGray
+Write-Host " Protokoll dieser Installation: $LogPath" -ForegroundColor DarkGray
+Write-Host ''
+try { Read-Host 'Enter druecken zum Schliessen' | Out-Null } catch { Start-Sleep -Seconds 20 }

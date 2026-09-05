@@ -533,17 +533,17 @@ du diese Einstellungen bei Bedarf mit einem Klick daneben erreichst.
 
 ## Installation
 
-1. Diesen Ordner (`Windows-PowerProfile-Switcher`) auf den XMG Neo 16
-   kopieren, z. B. auf den Desktop.
-2. Rechtsklick auf `Install.ps1` → **Mit PowerShell ausführen**.
-   - Falls eine Sicherheitswarnung zur Ausführungsrichtlinie erscheint,
-     stattdessen PowerShell öffnen und ausführen:
-     ```powershell
-     powershell -ExecutionPolicy Bypass -File .\Install.ps1
-     ```
-3. Es erscheint eine Administrator-Abfrage (UAC) – bestätigen. Das ist
-   **einmalig** nötig, damit die geplanten Aufgaben eingerichtet werden
-   können. Danach läuft das Umschalten ganz ohne weitere UAC-Fenster.
+1. ZIP **entpacken** (nicht direkt aus dem ZIP starten) und den Ordner
+   z. B. auf den Desktop legen.
+2. Doppelklick auf **`Installieren.bat`** – oder auf
+   `Installieren mit Tray.bat`, wenn du zusätzlich das Tray-Icon willst.
+3. Die Administrator-Abfrage (UAC) bestätigen. Das ist **einmalig** nötig;
+   danach läuft das Umschalten ohne weitere UAC-Fenster.
+
+> Warum eine `.bat` statt „Mit PowerShell ausführen"? Das Fenster bleibt
+> offen und zeigt Meldungen an. Bei „Mit PowerShell ausführen" schließt
+> Windows das Fenster bei einem Fehler sofort wieder, und man sieht nicht,
+> was los war.
 
 Nach der Installation hast du:
 
@@ -665,8 +665,9 @@ Neo 16 verwendet wird.
 
 ## Deinstallation
 
-`Uninstall.ps1` per Rechtsklick → **Mit PowerShell ausführen** (nimm die
-Datei aus dem **aktuellen** Paket, sie kennt alle Aufgabennamen). Entfernt:
+Doppelklick auf **`Deinstallieren.bat`** (liegt im entpackten Ordner und
+nach der Installation auch unter
+`%LOCALAPPDATA%\PowerProfileSwitcher\Deinstallieren.bat`). Entfernt:
 
 - alle geplanten Aufgaben (`PowerProfileSwitcher-Gaming`, `-Balanced`,
   `-Travel`, `-Video`, `-Travel-NoGpu`, `-Tray`, `-Watchdog`)
@@ -678,6 +679,23 @@ Datei aus dem **aktuellen** Paket, sie kennt alle Aufgabennamen). Entfernt:
 
 > Messdaten behalten? Vorher im Programmfenster unter **Werkzeuge →
 > Konfiguration sichern** eine ZIP-Datei anlegen.
+
+Das Fenster bleibt bis zum Enter-Druck offen und listet auf, was entfernt
+wurde und was nicht ging; alles landet zusätzlich in
+`%TEMP%\PowerProfileSwitcher-Uninstall.log`.
+
+**Wenn gar nichts passiert und das Fenster sofort zugeht:** PowerShell als
+Administrator öffnen und direkt aufrufen – dann bleibt die Fehlermeldung
+stehen:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\Pfad\zum\Ordner\Uninstall.ps1"
+```
+
+Zur Not geht es auch von Hand: im Taskplaner (`taskschd.msc`) alle
+Aufgaben löschen, die mit `PowerProfileSwitcher-` beginnen, den Ordner
+`%LOCALAPPDATA%\PowerProfileSwitcher` löschen und die Verknüpfungen vom
+Desktop entfernen.
 
 **Nur die alte Version loswerden, ohne alles zu verlieren:** Einfach die
 neue `Install.ps1` ausführen. Sie überschreibt alle Skripte, entfernt das
