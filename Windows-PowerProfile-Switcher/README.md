@@ -10,6 +10,12 @@ Eine kleine Windows-11-App für den **XMG Neo 16 (E25)**, mit der du per
 | 🔋 **Unterwegs** | Akku soll möglichst lange halten | CPU gedrosselt, Bildschirm/Standby schalten früh ab, WLAN im Sparmodus, Helligkeit 35 %, **60 Hz**, **dedizierte GPU wird deaktiviert (nur integrierte Grafik)** |
 | 🎬 **Video / Streaming** | Film schauen, Präsentation | Bildschirm geht **nie** von selbst aus, CPU sparsam ohne Turbo, 60 Hz, Helligkeit 55 %, GPU wird nicht angefasst |
 
+Bedient wird alles über **ein Programmfenster** (Desktop-Verknüpfung
+„PowerProfile Switcher") – Profile umschalten, alles einstellen, alle
+Werkzeuge starten. Das Fenster läuft nur, solange es offen ist; danach
+bleibt **kein Prozess der App zurück**. Zusätzlich gibt es je eine
+Verknüpfung pro Profil zum Direkt-Umschalten.
+
 Kein Zusatzprogramm nötig – die App besteht nur aus PowerShell-Skripten,
 die bereits in Windows 11 enthaltene Bordmittel nutzen (`powercfg`,
 Bildschirmhelligkeit über WMI, `pnputil` für die GPU, die native
@@ -95,6 +101,37 @@ ist deutlich belastbarer als die kurze Messung direkt nach dem
 Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
 automatisch gekürzt, sobald sie 2 MB überschreitet.
 
+## Das Programmfenster
+
+Doppelklick auf **„PowerProfile Switcher"** (Desktop oder Startmenü)
+öffnet das Hauptfenster mit vier Reitern:
+
+- **Profile** – die vier Profile als große Kacheln, das aktive farbig
+  hervorgehoben. Darüber der aktuelle Zustand: Profil, Verbrauch in Watt,
+  Restlaufzeit, Ladestand, aktuelle Hz und GPU-Status (aktualisiert sich
+  alle 3 Sekunden). Dazu „Zurück zum vorherigen Profil".
+- **Einstellungen** – Profil oben auswählen, darunter Helligkeit,
+  Bildwiederholrate, CPU-Maximum, Turbo und Hintergrund-Bremse; darunter
+  allgemein die 40-%-Regel, automatisches Umschalten und Hotkeys.
+- **Werkzeuge** – Verbrauchs-Bericht, Diagnose, Leistungstest,
+  Kalibrierung, Einrichtung, Sicherung, Notfall-Reset, Updates. Ganz
+  unten lässt sich der Hintergrunddienst an- und abschalten.
+- **Info** – Version, Ordner, Protokoll.
+
+**Warum das für Spiele besser ist:** Das Fenster ist nur ein Prozess,
+solange es offen ist. Profil wählen, Fenster schließen, Spiel starten –
+danach läuft nichts mehr von der App, und die Einstellungen bleiben
+trotzdem aktiv, weil sie als Windows-Energieschema gespeichert sind.
+
+**Das Tray-Icon ist seit Version 2.0.0 optional** und wird nicht mehr
+standardmäßig eingerichtet. Es liefert Watt-Protokoll, Standby-Auswertung
+und automatisches Umschalten — dafür läuft es dauerhaft im Hintergrund.
+Wer das will:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Install.ps1 -WithTray
+```
+
 ## Anti-Cheat: wenn Spiele nicht mehr starten
 
 **Das kann passieren, und es liegt an der Bauweise der App.** Kernelnahe
@@ -122,20 +159,11 @@ tut, sondern weil Schadsoftware genauso aussieht:
    `Set-PowerBackground.ps1 -Action Enable`
 3. **Komplett entfernen**: `Uninstall.ps1` als Administrator.
 
-**Ab Werk geändert (Version 1.9.0):** Die globalen Hotkeys sind jetzt
-**standardmäßig aus** — sie waren der wahrscheinlichste Auslöser und
-lassen sich im Einstellungsfenster wieder einschalten, wenn dein
-Anti-Cheat damit klarkommt.
-
-**Installation ganz ohne Hintergrunddienst:**
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Install.ps1 -NoTray
-```
-
-Dann gibt es nur die Profil-Verknüpfungen — kein Tray-Icon, keine
-Überwachung, kein dauerhafter Prozess. Es entfallen damit auch
-Watt-Anzeige, Protokoll, Standby-Auswertung und automatisches Umschalten.
+**Ab Werk geändert:** Seit 1.9.0 sind die globalen Hotkeys
+**standardmäßig aus** (wahrscheinlichster Auslöser), und seit 2.0.0 wird
+das **Tray-Icon gar nicht mehr installiert** — es gibt stattdessen das
+Programmfenster, das nur läuft, während du es benutzt. Eine
+Standardinstallation hinterlässt damit **keinen dauerhaften Prozess**.
 
 **Ehrlich gesagt:** Ich kann nicht bestimmen, welcher Punkt bei deinem
 Spiel konkret angeschlagen hat, und ich kann auch nicht garantieren, dass
@@ -347,7 +375,7 @@ du, läuft das mitgelieferte `Install.ps1` (einmal UAC-Abfrage), danach
 startet das Tray-Icon neu. Ohne Bestätigung passiert nichts, und
 heruntergeladene Dateien werden anschließend wieder gelöscht.
 
-Aktuelle Version: **1.9.0**
+Aktuelle Version: **2.0.0**
 
 ## Profil-Laufzeit im Menü
 

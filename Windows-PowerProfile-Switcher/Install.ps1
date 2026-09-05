@@ -16,11 +16,20 @@
 #>
 
 param(
-    # Installiert OHNE dauerhaft laufendes Tray-Icon und ohne dessen
-    # Ueberwachung. Profile laufen dann nur ueber die Verknuepfungen -
-    # sinnvoll, wenn ein Anti-Cheat-System Hintergrundprozesse bemaengelt.
+    # Richtet zusaetzlich das dauerhaft laufende Tray-Icon samt Ueberwachung
+    # ein. Standardmaessig AUS: ein dauerhafter versteckter Prozess stoert
+    # Anti-Cheat-Systeme. Ohne Tray gibt es das Programmfenster und die
+    # Verknuepfungen - dabei laeuft nur etwas, wenn du es benutzt.
+    # (Watt-Anzeige, Protokoll, Standby-Auswertung und automatisches
+    # Umschalten setzen das Tray-Icon voraus.)
+    [switch]$WithTray,
+
+    # Nur noch aus Kompatibilitaet - ohne Wirkung, da der Tray ohnehin
+    # standardmaessig nicht eingerichtet wird.
     [switch]$NoTray
 )
+
+$installTray = $WithTray -and -not $NoTray
 
 $ErrorActionPreference = 'Stop'
 
@@ -32,7 +41,7 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     Write-Host 'Starte erneut mit Administratorrechten ...'
     $scriptPath = $MyInvocation.MyCommand.Path
     $installArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`"")
-    if ($NoTray) { $installArgs += '-NoTray' }
+    if ($WithTray) { $installArgs += '-WithTray' }
     Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $installArgs
     exit
 }
@@ -49,7 +58,8 @@ foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 
                   'Test-PowerPerformance.ps1', 'Show-PowerSettings.ps1', 'PowerBench.ps1',
                   'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Watchdog-Tray.ps1',
                   'PowerDisplay.ps1', 'Reset-PowerProfile.ps1', 'Show-PowerStatus.ps1',
-                  'Backup-PowerConfig.ps1', 'Set-PowerBackground.ps1', 'Uninstall.ps1') {
+                  'Backup-PowerConfig.ps1', 'Set-PowerBackground.ps1', 'Show-PowerWindow.ps1',
+                  'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 
@@ -121,8 +131,8 @@ Register-ScheduledTask -TaskName $noGpuTaskName -Action $noGpuAction -Principal 
 
 # --- Tray-Icon und Ueberwachung (entfallen bei -NoTray) ------------------
 $trayTaskName = 'PowerProfileSwitcher-Tray'
-if ($NoTray) {
-    Write-Info 'Installation ohne Hintergrunddienst (-NoTray): kein Tray-Icon, keine Ueberwachung.'
+if (-not $installTray) {
+    Write-Info 'Installation ohne Hintergrunddienst: kein Tray-Icon, keine Ueberwachung.'
     Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like '*Start-Tray.ps1*' } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -131,7 +141,7 @@ if ($NoTray) {
     }
 }
 
-if (-not $NoTray) {
+if ($installTray) {
 Write-Info "Richte Autostart fuer das Tray-Icon ein ..."
 
 # Falls bereits eine alte Tray-Instanz laeuft (z.B. bei erneuter
@@ -153,7 +163,7 @@ Register-ScheduledTask -TaskName $trayTaskName -Action $trayAction -Trigger $tra
 }
 
 # --- Watchdog: startet das Tray-Icon neu, falls der Prozess stirbt ------
-if (-not $NoTray) {
+if ($installTray) {
 $watchdogTaskName = 'PowerProfileSwitcher-Watchdog'
 Write-Info "Richte Ueberwachung '$watchdogTaskName' ein ..."
 Unregister-ScheduledTask -TaskName $watchdogTaskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -188,9 +198,29 @@ function New-ProfileShortcut {
     $shortcut.Save()
 }
 
+function New-AppShortcut {
+    param([string]$Path, [string]$Target, [string]$Description)
+
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($Path)
+    $shortcut.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $shortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Target`""
+    $shortcut.Description = $Description
+    $shortcut.WindowStyle = 7
+    $shortcut.Save()
+}
+
 $Desktop      = [Environment]::GetFolderPath('Desktop')
 $StartMenuDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'PowerProfile Switcher'
 New-Item -ItemType Directory -Path $StartMenuDir -Force | Out-Null
+
+# Hauptfenster - der uebliche Weg, die App zu bedienen
+Write-Info 'Erstelle Verknuepfung fuer das Programmfenster ...'
+$windowScript = Join-Path $InstallDir 'Show-PowerWindow.ps1'
+foreach ($dir in $Desktop, $StartMenuDir) {
+    New-AppShortcut -Path (Join-Path $dir 'PowerProfile Switcher.lnk') -Target $windowScript `
+        -Description 'PowerProfile Switcher - Profile umschalten und einstellen'
+}
 
 Write-Info 'Erstelle Verknuepfungen auf Desktop und im Startmenue ...'
 foreach ($p in $ProfileDefinitions.Keys) {
@@ -202,7 +232,7 @@ foreach ($p in $ProfileDefinitions.Keys) {
 }
 
 # --- Tray-Icon direkt jetzt schon starten ------------------------------
-if (-not $NoTray) {
+if ($installTray) {
     Write-Info 'Starte Tray-Icon ...'
     try {
         Start-ScheduledTask -TaskName $trayTaskName
@@ -214,14 +244,24 @@ if (-not $NoTray) {
 Write-Host ''
 Write-Host '===========================================================' -ForegroundColor Green
 Write-Host ' Installation abgeschlossen!' -ForegroundColor Green
-Write-Host ' Auf dem Desktop liegen jetzt Verknuepfungen fuer:' -ForegroundColor Green
+Write-Host ' Auf dem Desktop liegt jetzt "PowerProfile Switcher" - das' -ForegroundColor Green
+Write-Host ' Programmfenster mit allen Profilen, Einstellungen und Werkzeugen.' -ForegroundColor Green
+Write-Host ''
+Write-Host ' Zusaetzlich je eine Verknuepfung zum Direkt-Umschalten:' -ForegroundColor Green
 foreach ($p in $ProfileDefinitions.Keys) {
     Write-Host ("   - {0}" -f $ProfileDefinitions[$p].ShortcutName) -ForegroundColor Green
 }
-Write-Host ' Zusaetzlich laeuft ab jetzt ein Tray-Icon (unten rechts) mit' -ForegroundColor Green
-Write-Host ' dem gleichen Menue - startet automatisch bei jeder Anmeldung,' -ForegroundColor Green
-Write-Host ' bleibt auch im Akkubetrieb aktiv und startet sich bei einem' -ForegroundColor Green
-Write-Host ' Absturz von selbst neu.' -ForegroundColor Green
+if ($installTray) {
+    Write-Host '' -ForegroundColor Green
+    Write-Host ' Zusaetzlich laeuft ab jetzt ein Tray-Icon (unten rechts) -' -ForegroundColor Green
+    Write-Host ' es startet bei jeder Anmeldung und liefert Watt-Anzeige,' -ForegroundColor Green
+    Write-Host ' Protokoll und automatisches Umschalten.' -ForegroundColor Green
+} else {
+    Write-Host '' -ForegroundColor Green
+    Write-Host ' Es laeuft KEIN Hintergrundprozess. Watt-Anzeige, Protokoll und' -ForegroundColor Green
+    Write-Host ' automatisches Umschalten brauchen das Tray-Icon - dafuer die' -ForegroundColor Green
+    Write-Host ' Installation mit  -WithTray  wiederholen.' -ForegroundColor Green
+}
 Write-Host '===========================================================' -ForegroundColor Green
 Write-Host ''
 Read-Host 'Enter druecken zum Schliessen'
