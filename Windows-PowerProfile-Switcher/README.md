@@ -1,0 +1,751 @@
+# PowerProfile Switcher
+
+Eine kleine Windows-11-App für den **XMG Neo 16 (E25)**, mit der du per
+**einem Klick** zwischen Energieprofilen wechselst:
+
+| Profil | Wann | Was passiert |
+|---|---|---|
+| 🎮 **Gaming** (erst ab 40 % Akku) | Zuhause an der Steckdose | Maximale CPU-Leistung, Bildschirm/Standby bleiben aus, WLAN auf höchste Leistung, Helligkeit 100 %, **240 Hz**, **dedizierte GPU aktiv** |
+| ⚖️ **Ausgeglichen** | Standard | Windows-Standardschema ("Ausbalanciert"), Helligkeit 60 %, Bildwiederholrate/GPU bleiben unverändert |
+| 🔋 **Unterwegs** | Akku soll möglichst lange halten | CPU gedrosselt, Bildschirm/Standby schalten früh ab, WLAN im Sparmodus, Helligkeit 35 %, **60 Hz**, **dedizierte GPU wird deaktiviert (nur integrierte Grafik)** |
+| 🎬 **Video / Streaming** | Film schauen, Präsentation | Bildschirm geht **nie** von selbst aus, CPU sparsam ohne Turbo, 60 Hz, Helligkeit 55 %, GPU wird nicht angefasst |
+
+Bedient wird alles über **ein Programmfenster** – auf dem Desktop liegt
+dafür eine echte **`PowerProfile Switcher.exe`** mit eigenem Symbol, die
+sich auch an die Taskleiste anheften lässt. Profile umschalten, alles
+einstellen, alle Werkzeuge starten. Das Fenster läuft nur, solange es offen ist; danach
+bleibt **kein Prozess der App zurück**. Zusätzlich gibt es je eine
+Verknüpfung pro Profil zum Direkt-Umschalten.
+
+Kein Zusatzprogramm nötig – die App besteht nur aus PowerShell-Skripten,
+die bereits in Windows 11 enthaltene Bordmittel nutzen (`powercfg`,
+Bildschirmhelligkeit über WMI, `pnputil` für die GPU, die native
+Windows-Anzeige-API für die Bildwiederholrate). Es wird keine Fremdsoftware
+installiert; die einzige Internetverbindung entsteht, wenn du im Tray-Menü
+selbst „Nach Updates suchen" anklickst.
+
+## GPU-Umschaltung (nur integrierte Grafik im Unterwegs-Profil)
+
+Im Profil "Unterwegs" wird die dedizierte GPU (NVIDIA, bzw. AMD bei der
+A-Modellvariante) automatisch über den Geräte-Manager deaktiviert
+(`pnputil /disable-device`) – danach läuft der Laptop nur noch mit der
+integrierten Intel-Grafik, was spürbar Akku spart. Beim Wechsel zurück
+auf "Gaming" wird die dedizierte GPU automatisch wieder aktiviert.
+
+Da Grafiktreiber ihre Ressourcen oft erst nach einem Neustart vollständig
+freigeben, fragt die App beim Deaktivieren per Dialog nach, ob **jetzt in
+60 Sekunden neu gestartet** werden soll (abbrechbar mit `shutdown /a` in
+einer Konsole, oder einfach "Nein" wählen und später manuell neu
+starten). Ein automatischer Neustart ohne Rückfrage findet **nie** statt,
+damit keine ungespeicherte Arbeit verloren geht.
+
+> **Hinweis:** Das funktioniert zuverlässig, solange der Laptop im
+> BIOS im normalen Optimus/Hybrid-Grafikmodus läuft (Werkseinstellung
+> beim XMG Neo 16) – dort ist die integrierte Grafik fest mit dem
+> internen Display verbunden. Falls im BIOS stattdessen "dGPU only"
+> eingestellt ist, bitte diese Funktion **nicht** nutzen, da sonst das
+> Bild schwarz bleiben könnte.
+
+## Bildwiederholrate (240 Hz / 60 Hz)
+
+Die App stellt die Bildwiederholrate des internen Displays direkt über
+die Windows-eigene Anzeige-API um – ohne Neustart, ohne Zusatzprogramm.
+"Gaming" schaltet auf 240 Hz, "Unterwegs" auf 60 Hz (spart zusätzlich
+Akku). Falls dein Panel keine 240 Hz unterstützt oder ein externer
+Monitor als Hauptbildschirm eingestellt ist, meldet die App das per
+Warnung in der Konsole, ohne das Umschalten der übrigen Einstellungen zu
+verhindern.
+
+## Watt-Zähler & Akku-Hochrechnung
+
+Damit du siehst, **wie viel ein Profil tatsächlich bringt**, misst die App
+den echten Verbrauch:
+
+- **Beim Profilwechsel** (nur im Akkubetrieb): 4 Sekunden Einpendeln,
+  dann 4 Messpunkte über ~8 Sekunden. Anschließend erscheint eine zweite
+  Benachrichtigung, z. B.:
+  *„12,4 W – Akku (78 %) reicht noch ca. 4 h 55 min, bei 100 % ca. 6 h 20 min.
+  Zuletzt gemessen – Gaming: 31,7 W, Ausgeglichen: 18,2 W"*
+- **Laufend im Tray**: Das Tray-Menü hat oben eine Zeile mit dem aktuellen
+  Verbrauch und der Restlaufzeit (gleitender Mittelwert der letzten 8
+  Messungen, alle 15 s aktualisiert). Auch der Tooltip zeigt
+  `Unterwegs - 12,4 W, ~4 h 55 min`.
+- **Klick auf diese Zeile** öffnet eine Detailansicht mit Ladestand,
+  Verbrauch, Restlaufzeit, Hochrechnung bei vollem Akku, **Akku-Zustand**
+  (aktuelle vs. ursprüngliche Kapazität), Ladezyklen und einer
+  **Vergleichstabelle aller drei Profile** – damit hast du direkt die
+  Einschätzung, wie effektiv das Unterwegs-Profil gegenüber Gaming ist.
+
+Woher die Daten kommen: die Windows-eigenen WMI-Klassen `BatteryStatus`,
+`BatteryFullChargedCapacity` und `BatteryStaticData` (Namespace
+`root\WMI`) liefern die momentane Entladerate in mW und die
+Restkapazität in mWh. Restlaufzeit = Restkapazität ÷ Entladerate.
+
+Einschränkungen, die man kennen sollte:
+
+- **Nur im Akkubetrieb messbar** – am Netzteil fließt kein Entladestrom.
+  Am Netz zeigt die App deshalb „Am Netzteil" statt einer Wattzahl.
+- Der Messwert ist eine **Momentaufnahme kurz nach dem Umschalten**, also
+  im Wesentlichen der Ruheverbrauch. Beim Zocken liegt der reale
+  Verbrauch deutlich höher – der Vergleich zwischen den Profilen bleibt
+  aber aussagekräftig, weil er unter gleichen Bedingungen entsteht.
+- Manche Akku-Firmware meldet keine Entladerate; dann steht dort
+  „Verbrauch nicht messbar" statt einer Schätzung.
+- Die Messwerte pro Profil liegen in
+  `%LOCALAPPDATA%\PowerProfileSwitcher\metrics.json`.
+
+**Langzeit-Verlauf:** Zusätzlich schreibt das Tray-Icon jeden Messpunkt
+(alle 15 s) nach `power-log.csv` – mit Zeit, Profil, Watt und Ladestand.
+Die Detailansicht zeigt daraus den **echten Durchschnittsverbrauch je
+Profil über die gesamte Nutzungsdauer** samt Anzahl der Messungen. Das
+ist deutlich belastbarer als die kurze Messung direkt nach dem
+Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
+automatisch gekürzt, sobald sie 2 MB überschreitet.
+
+## Das Programmfenster
+
+Doppelklick auf **„PowerProfile Switcher"** (Desktop oder Startmenü)
+öffnet das Hauptfenster mit vier Reitern:
+
+- **Profile** – die vier Profile als große Kacheln, das aktive farbig
+  hervorgehoben. Darüber der aktuelle Zustand: Profil, Verbrauch in Watt,
+  Restlaufzeit, Ladestand, aktuelle Hz und GPU-Status (aktualisiert sich
+  alle 3 Sekunden). Dazu „Zurück zum vorherigen Profil".
+- **Einstellungen** – Profil oben auswählen, darunter Helligkeit,
+  Bildwiederholrate, CPU-Maximum, Turbo und Hintergrund-Bremse; darunter
+  allgemein die 40-%-Regel, automatisches Umschalten und Hotkeys.
+- **Werkzeuge** – Verbrauchs-Bericht, Diagnose, Leistungstest,
+  Kalibrierung, Einrichtung, Sicherung, Notfall-Reset, Updates. Ganz
+  unten lässt sich der Hintergrunddienst an- und abschalten.
+- **Info** – Version, Ordner, Protokoll.
+
+**Warum das für Spiele besser ist:** Das Fenster ist nur ein Prozess,
+solange es offen ist. Profil wählen, Fenster schließen, Spiel starten –
+danach läuft nichts mehr von der App, und die Einstellungen bleiben
+trotzdem aktiv, weil sie als Windows-Energieschema gespeichert sind.
+
+**Das Tray-Icon ist seit Version 2.0.0 optional** und wird nicht mehr
+standardmäßig eingerichtet. Es liefert Watt-Protokoll, Standby-Auswertung
+und automatisches Umschalten — dafür läuft es dauerhaft im Hintergrund.
+Wer das will:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Install.ps1 -WithTray
+```
+
+## Die EXE auf dem Desktop
+
+`Install.ps1` übersetzt beim Einrichten ein kleines Startprogramm mit dem
+**C#-Compiler, der zum .NET Framework von Windows gehört** (`csc.exe`) –
+es wird nichts heruntergeladen und nichts zusätzlich installiert. Das
+Ergebnis landet als `PowerProfile Switcher.exe` direkt auf dem Desktop,
+inklusive selbst erzeugtem Symbol.
+
+Die EXE kann zweierlei:
+
+```
+PowerProfile Switcher.exe            öffnet das Programmfenster
+PowerProfile Switcher.exe Travel     schaltet direkt auf "Unterwegs"
+```
+
+Der Installationspfad wird beim Übersetzen fest eingetragen, deshalb
+funktioniert sie auch, wenn du sie verschiebst oder kopierst.
+
+Zwei Dinge dazu ehrlich gesagt:
+
+- Die EXE ist **nicht signiert**. Windows SmartScreen kann beim ersten
+  Start „Unbekannter Herausgeber" melden – dann auf *Weitere
+  Informationen → Trotzdem ausführen*. Eine Signatur bräuchte ein
+  gekauftes Zertifikat.
+- Sie startet intern weiterhin PowerShell. **Für Anti-Cheat ändert die
+  EXE also nichts** – entscheidend bleibt, dass beim Spielen nichts von
+  der App läuft.
+
+Klappt das Übersetzen nicht (z. B. weil das .NET Framework fehlt), legt
+die Installation automatisch stattdessen eine normale Verknüpfung an –
+funktional identisch.
+
+## Anti-Cheat: wenn Spiele nicht mehr starten
+
+**Das kann passieren, und es liegt an der Bauweise der App.** Kernelnahe
+Anti-Cheat-Systeme (Vanguard, Easy Anti-Cheat, BattlEye) stufen mehrere
+Dinge als verdächtig ein, die diese App tut — nicht weil sie etwas Böses
+tut, sondern weil Schadsoftware genauso aussieht:
+
+| Was die App tut | Warum das auffällt |
+|---|---|
+| Dauerhaft ein **verstecktes PowerShell-Fenster** (`-WindowStyle Hidden -ExecutionPolicy Bypass`) | Die klassische Signatur dateiloser Schadsoftware |
+| **Globale Hotkeys** (`RegisterHotKey`) | Typisch für Makros und Triggerbots |
+| Geplante Aufgaben **mit erhöhten Rechten**, ausgelöst aus einem normalen Prozess | Bekanntes Muster zur UAC-Umgehung |
+| **C#-Code zur Laufzeit übersetzen** (`Add-Type`) | Sieht aus wie Nachladen von Schadcode |
+| Fremde Prozesse beenden, Geräte deaktivieren, Anzeige umstellen | Manipulation am System |
+
+**Sofort wieder spielen können — drei Wege, vom mildesten zum gründlichsten:**
+
+1. **Tray-Menü → „Beenden fuers Spielen"**: Beendet das Icon, und die
+   Überwachung startet es *nicht* wieder (erst bei der nächsten
+   Anmeldung). Damit läuft während des Spiels kein Prozess der App.
+2. **Tray-Menü → „Hintergrunddienst dauerhaft abschalten"**: Deaktiviert
+   Tray und Überwachung als geplante Aufgaben. Profile schaltest du
+   weiterhin per Desktop-Verknüpfung um — dabei läuft nur für ein paar
+   Sekunden etwas. Wieder anschalten:
+   `Set-PowerBackground.ps1 -Action Enable`
+3. **Komplett entfernen**: `Uninstall.ps1` als Administrator.
+
+**Ab Werk geändert:** Seit 1.9.0 sind die globalen Hotkeys
+**standardmäßig aus** (wahrscheinlichster Auslöser), und seit 2.0.0 wird
+das **Tray-Icon gar nicht mehr installiert** — es gibt stattdessen das
+Programmfenster, das nur läuft, während du es benutzt. Eine
+Standardinstallation hinterlässt damit **keinen dauerhaften Prozess**.
+
+**Ehrlich gesagt:** Ich kann nicht bestimmen, welcher Punkt bei deinem
+Spiel konkret angeschlagen hat, und ich kann auch nicht garantieren, dass
+eine bestimmte Einstellung reicht. Ein kernelnahes Anti-Cheat darf jeden
+versteckten Skript-Prozess blockieren. **Der verlässliche Weg ist Weg 1
+oder 2: vor dem Spielen Profil wählen, Hintergrunddienst aus, dann
+starten.** Profile bleiben aktiv, auch wenn nichts von der App läuft —
+die Einstellungen stehen in Windows selbst, nicht im Programm.
+
+## Notfall-Reset & Sicherung
+
+Tray-Menü → **„Alles zuruecksetzen (Notfall)"**. Dreht in einem Rutsch
+alles zurück, was die App am System geändert haben kann:
+
+- dedizierte GPU wieder aktivieren
+- pausierte Hintergrunddienste wieder starten
+- Energieschema auf „Ausbalanciert"
+- Helligkeit 80 %, höchste verfügbare Bildwiederholrate
+- auf Nachfrage zusätzlich: eigene Energieschemata und Anpassungen löschen
+
+Am Ende zeigt ein Fenster, was erledigt wurde und was nicht ging. Deine
+Messdaten bleiben erhalten.
+
+Ergänzend sichert `Install.ps1` **einmalig vor der ersten Änderung** dein
+damals aktives Energieschema per `powercfg /export` nach
+`%LOCALAPPDATA%\PowerProfileSwitcher\backup-original-scheme.pow`.
+Zurückspielen bei Bedarf:
+
+```powershell
+powercfg /import "%LOCALAPPDATA%\PowerProfileSwitcher\backup-original-scheme.pow"
+```
+
+## Systemzustand & Vorschau
+
+Tray-Menü → **„Systemzustand & Vorschau"** zeigt den **tatsächlichen**
+Ist-Zustand statt der Sollwerte: aktives Schema, aktuelle Auflösung und
+Hz (plus alle verfügbaren Frequenzen), Helligkeit, GPU-Status, welche
+Dienste gerade pausiert sind, Stromquelle und Verbrauch.
+
+Darunter steht pro Profil, **was ein Klick konkret ändern würde** – etwa
+*„240 → 60 Hz, Helligkeit 100 → 35 %, GPU wird abgeschaltet
+(Neustart-Abfrage)"*. Fordert ein Profil eine Frequenz, die dein Panel
+gar nicht anbietet, steht das ausdrücklich dabei. Der Text lässt sich mit
+einem Klick in die Zwischenablage kopieren.
+
+## Akkuverlust im Standby
+
+Der Tray tickt alle 15 Sekunden. Ist die Lücke zwischen zwei Messungen
+größer als vier Minuten, war der Laptop im Standby – daraus berechnet die
+App, wie viel Akku das gekostet hat, und meldet beim Aufwachen z. B.
+*„8,2 Stunden Standby haben 6 % Akku gekostet (0,73 % pro Stunde)."*
+
+Die Werte landen in `standby-log.csv` und im Verbrauchs-Bericht als
+Tabelle samt Hochrechnung („eine Nacht kostet etwa 6 %"). Modern Standby
+zieht auf vielen Laptops deutlich mehr als erwartet – das ist oft der
+wahre Grund, warum der Akku morgens leerer ist.
+
+## Kleinigkeiten für den Alltag
+
+- **„Zurueck zum vorherigen Profil"** im Menü – erscheint nur, wenn es
+  ein voriges gibt
+- **`Strg+Alt+P`** schaltet durch alle Profile durch (ein gesperrtes
+  Gaming-Profil wird übersprungen)
+- **Konfiguration sichern / wiederherstellen** – packt Anpassungen und
+  alle Messdaten in eine ZIP-Datei, für Neuinstallation oder einen
+  zweiten Rechner. Vor dem Wiederherstellen legt die App automatisch eine
+  Sicherheitskopie des aktuellen Stands an.
+
+## Automatische Kalibrierung der CPU-Grenze
+
+Tray-Menü → **„CPU-Grenze kalibrieren (Akkubetrieb)"**. Statt einen Wert
+zu raten, misst die App ihn: Sie probiert nacheinander 40/50/60/70/85/100 %
+CPU-Maximum durch und misst bei jedem Wert Leistung *und* Verbrauch.
+Ergebnis ist eine Tabelle plus zwei Empfehlungen:
+
+- **Bester Wirkungsgrad** – meiste Leistung je Watt, der Vorschlag für den
+  Akkubetrieb
+- **Knick der Kurve** – der günstigste Wert, der noch ~95 % der
+  Spitzenleistung liefert
+
+Auf Wunsch wird der empfohlene Wert direkt übernommen; sonst bleibt alles
+wie vorher. **Die ursprüngliche Einstellung wird in jedem Fall wieder
+hergestellt** (auch bei Abbruch), und der Test läuft nur im Akkubetrieb ab
+30 % Ladung. Dauer: ein bis zwei Minuten unter Volllast — der Lüfter wird
+dabei hörbar. Einmal UAC-Abfrage, weil `powercfg` erhöhte Rechte braucht.
+
+## Einrichtungs-Assistent
+
+Tray-Menü → **„Einrichtung (Hardware erkennen)"**, und beim allerersten
+Start automatisch einmal. Der Assistent liest aus, was wirklich da ist —
+**welche Bildwiederholraten dein Panel tatsächlich anbietet**, Auflösung,
+dedizierte GPU, Akkukapazität samt Zustand, CPU und Kernzahl — und leitet
+daraus Startwerte ab: Gaming bekommt die höchste gemeldete Frequenz,
+Unterwegs/Video die niedrigste ab 48 Hz.
+
+Damit stehen dort gemessene statt geratener Werte. Meldet dein Panel z. B.
+kein 240 Hz, sagt der Assistent das und trägt den echten Maximalwert ein.
+Die CPU-Grenzen lässt er bewusst in Ruhe — dafür gibt es die Kalibrierung.
+
+## Watt-Zahl im Tray-Icon
+
+Sobald ein Messwert vorliegt (also im Akkubetrieb), zeigt das Icon selbst
+die aktuelle Wattzahl auf dem Profil-Farbpunkt — du siehst den Verbrauch
+also permanent, ohne das Menü zu öffnen. Am Netzteil erscheint wieder der
+einfarbige Punkt. Bei 16×16 Pixeln sind zwei Ziffern lesbar, ab 100 W
+zeigt das Icon „99".
+
+## Akku-Zustand im Verlauf
+
+Einmal täglich hält das Tray-Icon die aktuelle Akkukapazität in
+`battery-health.csv` fest. Im Verbrauchs-Bericht erscheint daraus ein
+Balkendiagramm mit dem Kapazitätsverlauf plus Vergleich gegen den
+Neuzustand („aktuell 74,8 von 80,0 Wh — das sind 94 %"). Aussagekräftig
+wird die Kurve erst nach einigen Monaten; kurzfristige Schwankungen sind
+normal, weil Akku-Firmware die Kapazität regelmäßig neu schätzt.
+
+## Leistungstest (was ein Profil leistet, nicht nur was es kostet)
+
+Tray-Menü → **„Leistungstest fuer dieses Profil"** lässt etwa 20 Sekunden
+eine reine Rechenlast laufen (einkernig und über alle Kerne) und misst
+dabei gleichzeitig Verbrauch und CPU-Takt. Ergebnis z. B.:
+
+```
+Profil: Unterwegs
+Einkern-Leistung   : 12,40 Durchlaeufe/s
+Alle Kerne (24)    : 148,20 Durchlaeufe/s
+CPU-Takt (Mittel)  : 1850 MHz
+Verbrauch dabei    : 21,3 W
+Effizienz          : 6,96 Durchlaeufe/s je Watt
+
+Vergleich mit frueheren Messungen:
+  Gaming         100 % Leistung    54,7 W   (04.09. 19:12)
+  Unterwegs       38 % Leistung    21,3 W   (04.09. 19:31)
+```
+
+Damit siehst du erstmals das **Preis-Leistungs-Verhältnis**: Wenn
+„Unterwegs" nur noch 38 % Leistung bringt, aber 61 % Strom spart, passt
+die Drosselung – bringt es dagegen 20 % Leistung bei 30 % Ersparnis, ist
+sie zu hart eingestellt und `CPU-Maximum` sollte höher.
+
+Den Test in **jedem Profil einmal** unter gleichen Bedingungen starten
+(gleiche Stromquelle, nichts anderes aktiv) – danach steht der Vergleich
+auch im Verbrauchs-Bericht. Die Zahlen sind relativ und nur untereinander
+vergleichbar, kein absoluter Benchmark-Wert.
+
+## Hintergrund-Bremse
+
+Im Unterwegs-Profil pausiert die App stromhungrige Hintergrunddienste und
+gibt sie bei „Gaming"/„Ausgeglichen" wieder frei:
+
+- `WSearch` – Windows-Suchindizierung
+- `DoSvc` – Update-Auslieferungsoptimierung (lädt Updates auch für andere
+  PCs im Netz hoch)
+
+Wieder gestartet werden **ausschließlich Dienste, die die App selbst
+gestoppt hat** (gemerkt in `services.json`) – manuell deaktivierte Dienste
+bleiben unangetastet, und die Deinstallation gibt alles wieder frei.
+
+Weitere Dienste oder Programme lassen sich in `Profiles.ps1` über
+`$BackgroundServices` bzw. `$BackgroundProcesses` ergänzen. `$BackgroundProcesses`
+ist bewusst leer: Programme wie OneDrive würden beendet und **nicht**
+automatisch wieder gestartet – nur eintragen, wenn du das willst.
+Abschalten lässt sich das Ganze pro Profil im Einstellungsfenster.
+
+## Einstellungsfenster
+
+Tray-Menü → **„Einstellungen ..."** öffnet ein Fenster für die Werte, die
+man am ehesten anpassen will, ohne `Profiles.ps1` zu bearbeiten:
+
+- je Profil: Helligkeit, Bildwiederholrate, CPU-Maximum, Turbo/Boost,
+  Hintergrund-Bremse an/aus
+- allgemein: Gaming-Mindestakku (die 40-%-Regel) und automatisches
+  Umschalten beim An-/Abstecken
+
+Gespeichert wird nach `profile-overrides.json`; `Profiles.ps1` liest die
+Datei bei jedem Profilwechsel. Zwei Vorteile: es ist **keine
+Neuinstallation nötig**, und ein Update überschreibt deine Anpassungen
+nicht. „Standardwerte" löscht die Datei wieder. Alles andere (Zeiten,
+WLAN, PCIe, Aufwachtimer …) bleibt in `Profiles.ps1`.
+
+## Verbrauchs-Bericht (Diagramm)
+
+Tray-Menü → **„Verbrauchs-Bericht anzeigen"** erzeugt aus `power-log.csv`
+eine HTML-Seite und öffnet sie im Browser:
+
+- **Verlaufsdiagramm** der gemessenen Watt, farbig nach Profil (rot =
+  Gaming, blau = Ausgeglichen, grün = Unterwegs), mit Tooltip pro Balken
+- Kennzahlen: Gesamtdurchschnitt, sparsamstes Profil, aufgezeichnete
+  Akku-Stunden, aktuelle Akkukapazität
+- Tabelle je Profil: Mittel-/Minimal-/Maximalverbrauch, hochgerechnete
+  Laufzeit bei vollem Akku, Anzahl Messpunkte – inklusive Satz wie
+  *„Unterwegs verbraucht im Mittel 58 % weniger als Gaming"*
+- Tabelle je Tag (letzte 14 Tage)
+
+Das Diagramm ist reines Inline-SVG – keine Bibliothek, kein Internet, die
+Datei (`%LOCALAPPDATA%\PowerProfileSwitcher\verbrauch.html`) lässt sich
+also auch offline öffnen oder weitergeben. Zeitraum ändern:
+`New-PowerReport.ps1 -Days 30` (`0` = alles).
+
+Weil nur im Akkubetrieb protokolliert wird, zeigt die Zeitachse
+aneinandergereihte Akku-Phasen, nicht die durchgehende Kalenderzeit.
+
+## Updates
+
+Tray-Menü → **„Nach Updates suchen"** lädt das aktuelle Archiv aus dem
+GitHub-Repository, vergleicht `$PowerProfileVersion` aus `Profiles.ps1`
+mit der installierten Fassung und bietet die Aktualisierung an. Bestätigst
+du, läuft das mitgelieferte `Install.ps1` (einmal UAC-Abfrage), danach
+startet das Tray-Icon neu. Ohne Bestätigung passiert nichts, und
+heruntergeladene Dateien werden anschließend wieder gelöscht.
+
+Aktuelle Version: **2.0.0**
+
+## Profil-Laufzeit im Menü
+
+Unter der Verbrauchszeile steht jetzt, seit wann das aktuelle Profil
+läuft und was es gekostet hat – z. B. *„Unterwegs seit 1 h 20 min – 18 %
+Akku verbraucht"* (beim Laden entsprechend *„… – 12 % geladen"*). Der
+Ladestand zum Zeitpunkt des Wechsels wird dafür in `current.json`
+mitgeschrieben.
+
+## Schutzregel: Gaming erst ab 40 % Akku
+
+Liegt der Ladestand **unter 40 %**, wird das Gaming-Profil **nicht
+aktiviert** – auch nicht am Netzteil. Stattdessen kommt eine
+Benachrichtigung „Akku bei X % – Gaming ist erst ab 40 % vorgesehen",
+und das bisherige Profil bleibt unverändert. So kann der Akku bei
+niedrigem Stand erst laden, statt unter Volllast zu hängen.
+
+Das gilt an allen Stellen gleich: Desktop-Verknüpfung, Startmenü, Hotkey
+und automatisches Umschalten.
+
+- Im Tray-Menü ist der Gaming-Eintrag währenddessen ausgegraut und heißt
+  „Gaming – erst ab 40 % Akku".
+- Beim **automatischen** Umschalten wird der Wunsch gemerkt: Steckst du
+  bei 25 % das Netzteil an, meldet die App „Gaming folgt automatisch,
+  sobald 40 % erreicht sind" – und schaltet dann von selbst um, sobald
+  der Akku so weit geladen ist. Wählst du zwischenzeitlich von Hand ein
+  Profil, wird die Vormerkung verworfen.
+- Ohne verlässliche Akku-Werte (z. B. Desktop-PC oder Akku meldet nichts)
+  greift die Regel nicht.
+- **Schwelle ändern:** `$GamingMinBatteryPercent` ganz oben in
+  `Profiles.ps1` (`0` schaltet die Regel ab), danach `Install.ps1` erneut
+  ausführen.
+- **Einmalig übergehen:** in einer Administrator-PowerShell
+  `…\PowerProfileSwitcher\Set-PowerProfile.ps1 -Mode Gaming -Force`.
+- Die Diagnose zeigt unter „Akku und Verbrauchsmessung", ob die Sperre
+  gerade greift.
+
+## Automatik, Hotkeys & Diagnose
+
+**Automatisch umschalten** (standardmäßig **aus**, im Tray-Menü
+aktivierbar): Netzteil abgezogen → Unterwegs, Netzteil angeschlossen →
+Gaming. Erkannt wird das über den 15-Sekunden-Takt des Tray-Icons, der
+Wechsel erfolgt also spätestens 15 s nach dem Um-/Ausstecken.
+Die **GPU-Abschaltung bleibt dabei bewusst außen vor** (eigene Aufgabe
+`PowerProfileSwitcher-Travel-NoGpu` mit `-SkipGpu`), damit nicht bei
+jedem Ausstecken eine Neustart-Abfrage kommt. Willst du die dedizierte
+GPU wirklich abschalten, wähle „Unterwegs" einmal von Hand.
+
+**Hotkeys** – funktionieren auch im Vollbild-Spiel:
+
+| Tastenkombination | Profil |
+|---|---|
+| `Strg+Alt+1` | Gaming |
+| `Strg+Alt+2` | Ausgeglichen |
+| `Strg+Alt+3` | Unterwegs |
+| `Strg+Alt+4` | Video / Streaming |
+| `Strg+Alt+P` | nächstes Profil (durchschalten) |
+
+Die Hotkeys sind **ab Werk ausgeschaltet**, weil global registrierte
+Tastenkombinationen von Anti-Cheat-Systemen als verdächtig gelten. Im
+Einstellungsfenster lassen sie sich einschalten.
+
+Ist eine Kombination schon von einem anderen Programm belegt, wird sie
+übersprungen und das in `tray.log` vermerkt – die übrigen funktionieren
+weiter.
+
+**Akku-Warnung**: Bei 20 % und 10 % Restladung meldet sich das Tray-Icon
+mit der geschätzten Restlaufzeit beim aktuellen Verbrauch.
+
+**Diagnose** (Tray-Menü → „Diagnose ausfuehren"): `Test-PowerProfile.ps1`
+liest mit `powercfg /query` **zurück, welche Einstellungen auf deinem
+Gerät tatsächlich angekommen sind**, und listet Soll- gegen Ist-Werte
+mit Status `OK` / `ABWEICHUNG` / `NICHT UNTERSTUETZT`. Dazu kommen:
+mögliche Bildwiederholraten deines Panels, erkannte Grafikkarten samt
+Status, Akku-Zustand und ob die Verbrauchsmessung funktioniert, sowie der
+Zustand aller geplanten Aufgaben. Der Bericht landet in
+`%LOCALAPPDATA%\PowerProfileSwitcher\diagnose.txt` und öffnet sich im
+Editor.
+
+Damit kannst du direkt nachsehen, ob z. B. `PERFEPP` oder `CPMAXCORES`
+auf deiner CPU wirklich greifen – falls dort `NICHT UNTERSTUETZT` steht,
+ist das kein Fehler, sondern heißt nur, dass dein Gerät diesen Regler
+nicht anbietet.
+
+## Spar- und Boost-Optionen im Detail
+
+Diese Werte setzt die App pro Profil, jeweils getrennt für Netzbetrieb
+(AC) und Akkubetrieb (DC):
+
+| Einstellung | Was sie bewirkt | Gaming (AC/DC) | Unterwegs (AC/DC) |
+|---|---|---|---|
+| `PROCTHROTTLEMIN` / `PROCTHROTTLEMAX` | Min./Max. CPU-Takt in % | 100/20 – 100/100 | 5/5 – 100/60 |
+| `PERFBOOSTMODE` | **Turbo/Boost-Modus**: 0=aus, 1=ein, 2=aggressiv, 3/4=effiziente Varianten | 2/1 | 1/**0 (aus)** |
+| `PERFBOOSTPOL` | **Boost-Bereitschaft** 0–100: wie schnell/oft der Turbo greift | 100/60 | 50/0 |
+| `PERFEPP` | **Energy Performance Preference** 0–100 (0 = volle Leistung, 100 = maximale Effizienz). Der eigentliche Regler hinter Windows' Leistungs-Schieber auf modernen Intel-CPUs | 0/25 | 50/**100** |
+| `CPMINCORES` / `CPMAXCORES` | **Core Parking**: wie viele Kerne wach bleiben müssen/dürfen | 100/20 – 100/100 | 10/5 – 100/**50** |
+| `RTCWAKE` | **Aufwachtimer**: verhindert im Unterwegs-Profil, dass der Laptop in der Tasche von selbst aufwacht (häufigste Ursache für leeren Akku + Hitze) | 1/1 (erlaubt) | 1/**0 (aus)** |
+| `ESBATTTHRESHOLD` | Ab wie viel % Akku Windows' **Energiesparmodus** automatisch anspringt | –/20 % | –/**100 % (immer an)** |
+| `ASPM` (PCIe) | Stromsparen der PCIe-Verbindungen: 0=aus, 1=moderat, 2=maximal | 0/1 | 1/2 |
+| `USBSELECTSUSPEND` | USB-Geräte im Leerlauf schlafen legen | aus/an | an/an |
+| WLAN-Sparmodus | 0=max. Leistung … 3=max. Einsparung | 0/1 | 2/3 |
+| `DISKIDLE`, `VIDEOIDLE`, `STANDBYIDLE`, `HIBERNATEIDLE` | Zeiten (Sekunden) bis Platte/Bildschirm/Standby/Ruhezustand, 0 = nie | 0/… | 600/180 … |
+
+Nicht unterstützte Einstellungen (je nach CPU/Treiber) werden automatisch
+übersprungen, ohne den Rest des Profils zu blockieren – das Skript
+probiert dabei sowohl den Kurznamen als auch die GUID der Einstellung.
+
+**Noch nicht enthalten** (bewusst, weil riskant oder nicht zuverlässig
+skriptbar): eine feste MHz-Obergrenze (`PROCFREQMAX`), das
+Umschalten des Windows-Leistungsschiebers selbst (dessen "Overlay"-Modus
+ist nicht offiziell dokumentiert – die App setzt stattdessen direkt EPP,
+was denselben Effekt hat), sowie Lüfterkurven, Akku-Ladelimit und
+Undervolting (nur über XMG Control Center bzw. BIOS).
+
+## Was die App NICHT steuert
+
+Lüfterkurven, RGB-Beleuchtung und das Akku-Ladelimit sind proprietär und
+nur über die **XMG Control Center** App ansteuerbar – dafür gibt es keine
+offiziell dokumentierte Schnittstelle. Das Tray-Menü bietet daher (falls
+installiert) einen direkten Link zum Öffnen von XMG Control Center, damit
+du diese Einstellungen bei Bedarf mit einem Klick daneben erreichst.
+
+## Installation
+
+1. ZIP **entpacken** (nicht direkt aus dem ZIP starten) und den Ordner
+   z. B. auf den Desktop legen.
+2. Doppelklick auf **`Installieren.bat`** – oder auf
+   `Installieren mit Tray.bat`, wenn du zusätzlich das Tray-Icon willst.
+3. Die Administrator-Abfrage (UAC) bestätigen. Das ist **einmalig** nötig;
+   danach läuft das Umschalten ohne weitere UAC-Fenster.
+
+> Warum eine `.bat` statt „Mit PowerShell ausführen"? Das Fenster bleibt
+> offen und zeigt Meldungen an. Bei „Mit PowerShell ausführen" schließt
+> Windows das Fenster bei einem Fehler sofort wieder, und man sieht nicht,
+> was los war.
+
+Nach der Installation hast du:
+
+- Drei Verknüpfungen auf dem **Desktop** (`Gaming - Höchstleistung`,
+  `Ausgeglichen`, `Unterwegs - Akku sparen`) – Doppelklick genügt.
+- Einen Eintrag im **Startmenü** (`PowerProfile Switcher`) mit denselben
+  drei Verknüpfungen (lässt sich an die Taskleiste anheften).
+- Ein **Tray-Icon** unten rechts (startet automatisch bei jeder
+  Anmeldung), Rechts- oder Linksklick öffnet das Umschalt-Menü.
+
+## Nutzung
+
+Einfach die passende Verknüpfung anklicken oder im Tray-Menü das Profil
+auswählen. Eine kurze Benachrichtigung bestätigt die Umschaltung. Der
+Wechsel dauert nur ein bis zwei Sekunden.
+
+Das Tray-Icon zeigt immer den aktuell aktiven Modus:
+
+- 🔴 rot = Gaming, 🔵 blau = Ausgeglichen, 🟢 grün = Unterwegs
+- Tooltip (Maus über dem Icon) nennt das aktive Profil im Klartext
+- Im Rechtsklick-Menü ist der aktive Eintrag mit einem Haken markiert
+
+## Wenn das Tray-Icon verschwindet
+
+Daran wurde in mehreren Schritten gearbeitet — der Stand in 1.7.1:
+
+**Fehler in Version 1.4–1.7.0:** Die „Selbstheilung" setzte alle 15 s
+`Visible = $true`. Das ist wirkungslos, denn WinForms bricht diesen Setter
+ab, wenn die Eigenschaft aus seiner Sicht schon `true` ist — eine
+Neuanmeldung bei der Taskleiste wurde also **nie** verschickt. Genau in dem
+Fall, für den die Funktion gedacht war, tat sie nichts.
+
+**Jetzt behoben durch drei Ebenen:**
+
+1. **Echtes Neuanmelden**: `Visible` wird aus- *und* wieder eingeschaltet,
+   was die Shell zwingt, das Symbol neu aufzunehmen.
+2. **Auf die richtigen Ereignisse reagieren**: Das versteckte Fenster der
+   App horcht jetzt auf `TaskbarCreated` (Explorer baut die Taskleiste neu
+   auf) und `WM_DISPLAYCHANGE` (Anzeige- oder Grafiktreiber-Wechsel, z. B.
+   beim GPU-Umschalten) — beides sind die Momente, in denen Windows die
+   Symbole vergisst. Zusätzlich meldet sich das Icon alle 5 Minuten
+   vorsorglich neu an.
+3. **Watchdog**: Eine eigene geplante Aufgabe prüft alle 5 Minuten, ob der
+   Tray-Prozess überhaupt noch läuft, und startet ihn sonst neu. Das greift
+   auch dann, wenn der ganze Prozess stirbt und sich nicht mehr selbst
+   helfen kann.
+
+**So findest du heraus, was bei dir passiert:** In
+`%LOCALAPPDATA%\PowerProfileSwitcher\tray.log` steht alle 30 Minuten
+„Tray laeuft.", dazu jedes Neuanmelden des Icons und jeder Neustart durch
+den Watchdog. Verschwindet das Icon und die Einträge laufen weiter, war es
+die Taskleiste; brechen sie ab, ist der Prozess gestorben — dann steht die
+Ursache meist direkt darüber im Protokoll.
+
+**Bitte prüfe außerdem**, ob das Symbol nur im Überlauf gelandet ist:
+Taskleisten-Einstellungen → *Andere Symbolleistenelemente* → PowerShell auf
+„Ein" stellen. Windows verschiebt neu angemeldete Symbole gerne dorthin.
+
+### Früher behoben (Version 1.4)
+
+Zwei weitere Ursachen waren schon vorher behoben worden:
+
+Zwei Ursachen waren dafür verantwortlich, dass das Icon nach dem
+Umschalten aus der Taskleiste verschwand:
+
+1. **Windows beendet geplante Aufgaben standardmäßig, sobald der Laptop
+   auf Akku wechselt** (`StopIfGoingOnBatteries`) – genau der Moment, in
+   dem man auf "Unterwegs" umschaltet. Das Tray-Icon lief als geplante
+   Aufgabe und wurde dadurch abgeschossen.
+2. Das Umschalten der GPU (`pnputil`) und der Bildwiederholrate löst
+   kurz einen Grafiktreiber-Reset aus, bei dem Windows Explorer
+   gelegentlich alle Tray-Icons "vergisst", die sich nicht von selbst neu
+   anmelden.
+
+Behoben durch:
+
+- Die geplante Aufgabe für das Tray-Icon läuft jetzt explizit **auch im
+  Akkubetrieb weiter**, hat **kein 72-Stunden-Zeitlimit** mehr (Windows'
+  Standardlimit für geplante Aufgaben – hätte das Icon spätestens nach 3
+  Tagen ohnehin beendet) und **startet sich bei einem Absturz bis zu 3x
+  automatisch neu**.
+- `Start-Tray.ps1` hat jetzt einen **Selbstheilungs-Timer**: alle 15
+  Sekunden (und zusätzlich 4 Sekunden nach jedem Profilwechsel) setzt es
+  `Visible = $true` erneut und aktualisiert Icon/Tooltip – falls Windows
+  das Icon zwischendurch entfernt hat, taucht es so innerhalb weniger
+  Sekunden von selbst wieder auf.
+- Fehler in einzelnen Menü-/Timer-Ereignissen werden abgefangen und nach
+  `%LOCALAPPDATA%\PowerProfileSwitcher\tray.log` protokolliert, statt den
+  ganzen Tray-Prozess abstürzen zu lassen.
+
+**Wichtig:** Diese Verbesserungen wirken erst nach einer erneuten
+Installation – bitte `Install.ps1` einmal neu ausführen (siehe unten),
+damit die geplante Aufgabe mit den neuen Einstellungen neu angelegt wird.
+
+## Anpassen
+
+Alle konkreten Werte (CPU-Grenzen, Zeiten bis Bildschirm/Standby,
+Helligkeit, Bildwiederholrate, GPU, WLAN-Sparmodus) stehen gesammelt in
+**`Profiles.ps1`** – eine Zeile pro Einstellung mit Klartext-Label sowie
+`Ac`- und `Dc`-Wert. Werte dort anpassen und anschließend `Install.ps1`
+erneut ausführen, damit die geplanten Aufgaben die aktualisierte Datei
+verwenden. Mit der Diagnose lässt sich danach prüfen, ob die neuen Werte
+angekommen sind.
+
+Beispiel: Wenn dir 60 % maximale CPU-Leistung im Profil "Unterwegs" zu
+wenig ist, einfach den Wert bei
+
+```powershell
+Set-PowerValue -SchemeGuid $guid -SubGroup SUB_PROCESSOR -Setting PROCTHROTTLEMAX -Ac 100 -Dc 60
+```
+
+anpassen (`-Dc 60` = 60 % im Akkubetrieb).
+
+Die Bildwiederholrate steht direkt bei den Aufrufen `Set-RefreshRate
+-Hertz 240` bzw. `-Hertz 60`. Welche GPU als "dediziert" erkannt wird,
+lässt sich in `Get-DiscreteGpuDevice` über das Namensmuster
+(`NVIDIA|Radeon RX|...`) anpassen, falls z. B. die AMD-Modellvariante des
+Neo 16 verwendet wird.
+
+## Deinstallation
+
+Doppelklick auf **`Deinstallieren.bat`** (liegt im entpackten Ordner und
+nach der Installation auch unter
+`%LOCALAPPDATA%\PowerProfileSwitcher\Deinstallieren.bat`). Entfernt:
+
+- alle geplanten Aufgaben (`PowerProfileSwitcher-Gaming`, `-Balanced`,
+  `-Travel`, `-Video`, `-Travel-NoGpu`, `-Tray`, `-Watchdog`)
+- alle Verknüpfungen auf dem Desktop, die EXE und den Startmenü-Ordner
+- den Ordner `%LOCALAPPDATA%\PowerProfileSwitcher` samt **allen Messdaten**
+- gibt pausierte Dienste wieder frei und setzt das Energieschema auf
+  „Ausbalanciert" zurück; auf Nachfrage löscht es auch die selbst
+  angelegten Schemata („XMG Gaming", „XMG Unterwegs", „XMG Video")
+
+> Messdaten behalten? Vorher im Programmfenster unter **Werkzeuge →
+> Konfiguration sichern** eine ZIP-Datei anlegen.
+
+Das Fenster bleibt bis zum Enter-Druck offen und listet auf, was entfernt
+wurde und was nicht ging; alles landet zusätzlich in
+`%TEMP%\PowerProfileSwitcher-Uninstall.log`.
+
+**Wenn gar nichts passiert und das Fenster sofort zugeht:** PowerShell als
+Administrator öffnen und direkt aufrufen – dann bleibt die Fehlermeldung
+stehen:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\Pfad\zum\Ordner\Uninstall.ps1"
+```
+
+Zur Not geht es auch von Hand: im Taskplaner (`taskschd.msc`) alle
+Aufgaben löschen, die mit `PowerProfileSwitcher-` beginnen, den Ordner
+`%LOCALAPPDATA%\PowerProfileSwitcher` löschen und die Verknüpfungen vom
+Desktop entfernen.
+
+**Nur die alte Version loswerden, ohne alles zu verlieren:** Einfach die
+neue `Install.ps1` ausführen. Sie überschreibt alle Skripte, entfernt das
+alte Tray-Icon samt Überwachung und legt die EXE an – Messdaten und
+Anpassungen bleiben erhalten.
+
+## Technischer Hintergrund
+
+- `Set-PowerProfile.ps1 -Mode Gaming|Balanced|Travel` ist das eigentliche
+  Kernskript und kann auch direkt (mit Adminrechten) aufgerufen werden.
+  Ein benannter Mutex verhindert, dass zwei Profilwechsel gleichzeitig
+  laufen und sich gegenseitig überschreiben.
+- `PowerMetrics.ps1` enthält die Mess-Funktionen (Watt, Restlaufzeit,
+  Akku-Zustand) und wird von beiden Skripten eingebunden.
+- `Profiles.ps1` enthält die Soll-Werte aller drei Profile an **einer**
+  Stelle – sowohl das Setzen (`Set-PowerProfile.ps1`) als auch das Prüfen
+  (`Test-PowerProfile.ps1`) benutzt genau diese Liste, damit Soll und Ist
+  nicht auseinanderlaufen. Werte ändern → `Install.ps1` erneut ausführen.
+- `Test-PowerProfile.ps1` erzeugt den Diagnose-Bericht (ohne Adminrechte
+  lauffähig).
+- `Install.ps1` legt drei geplante Aufgaben (Taskplaner) mit
+  **"Mit höchsten Rechten ausführen"** an. Windows erlaubt es, eine so
+  konfigurierte Aufgabe ohne erneuten UAC-Dialog auszulösen (sofern das
+  angemeldete Konto Administratorrechte hat) – dadurch ist ein
+  UAC-freies Umschalten per Klick möglich, obwohl `powercfg` intern
+  erhöhte Rechte braucht.
+- `Start-Tray.ps1` läuft **ohne** erhöhte Rechte und löst die geplanten
+  Aufgaben nur aus (`Start-ScheduledTask`).
+- Die eigenen Energieschemata werden per `powercfg /duplicatescheme`
+  erzeugt; ihre GUIDs merkt sich die App in
+  `%LOCALAPPDATA%\PowerProfileSwitcher\schemes.json`, damit bei
+  wiederholtem Aufruf nicht ständig neue Schemata entstehen.
+- Die Bildschirmhelligkeit wird sofort (nicht erst nach X Minuten
+  Inaktivität) über die WMI-Klasse `WmiMonitorBrightnessMethods`
+  gesetzt – funktioniert nur beim eingebauten Laptop-Display, nicht bei
+  extern angeschlossenen Monitoren.
+- Das aktuell aktive Profil steht in
+  `%LOCALAPPDATA%\PowerProfileSwitcher\current.json`, Tray-Fehler in
+  `...\tray.log` – hilfreich, falls doch mal etwas nicht wie erwartet
+  reagiert.
+- `Install.ps1` ist gefahrlos mehrfach ausführbar (z. B. nach einem
+  Update dieser Skripte): bestehende Aufgaben/Verknüpfungen werden vorher
+  entfernt und neu angelegt, eine bereits laufende Tray-Instanz wird vor
+  dem Neustart sauber beendet.
+
+## Voraussetzungen
+
+- Windows 11 (getestet für den XMG Neo 16 E25, funktioniert aber auf
+  jedem Windows-11-Laptop)
+- Ein Benutzerkonto mit Administratorrechten (für die einmalige
+  Installation)
+- Keine weiteren Abhängigkeiten – nur in Windows enthaltene Bordmittel
+  (PowerShell 5.1, `powercfg`, Taskplaner)
