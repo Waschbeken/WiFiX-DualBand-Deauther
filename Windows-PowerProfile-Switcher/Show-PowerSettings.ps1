@@ -182,8 +182,21 @@ try {
 } catch { }
 $globalBox.Controls.Add($autoSwitch)
 
+$hotkeys = New-Object System.Windows.Forms.CheckBox
+$hotkeys.Text = 'Globale Hotkeys (Strg+Alt+1..4, P) - kann Anti-Cheat stoeren'
+$hotkeys.Location = New-Object System.Drawing.Point(14, 78)
+$hotkeys.Size = New-Object System.Drawing.Size(380, 22)
+try {
+    if (Test-Path $SettingsFile) {
+        $loadedSettings = Get-Content $SettingsFile -Raw | ConvertFrom-Json
+        $hotkeys.Checked = [bool]$loadedSettings.Hotkeys
+    }
+} catch { }
+$globalBox.Controls.Add($hotkeys)
+$globalBox.Size = New-Object System.Drawing.Size(406, 112)
+
 $form.Controls.Add($globalBox)
-$y += 100
+$y += 122
 
 # --- Schaltflaechen ------------------------------------------------------
 $hint = New-Object System.Windows.Forms.Label
@@ -262,11 +275,11 @@ try {
 
 # Auto-Umschalten liegt in der Tray-Konfiguration
 try {
-    $traySettings = @{ AutoSwitch = [bool]$autoSwitch.Checked }
+    $traySettings = @{ AutoSwitch = [bool]$autoSwitch.Checked; Hotkeys = [bool]$hotkeys.Checked }
     if (Test-Path $SettingsFile) {
         $loaded = Get-Content $SettingsFile -Raw | ConvertFrom-Json
         foreach ($prop in $loaded.PSObject.Properties) {
-            if ($prop.Name -ne 'AutoSwitch') { $traySettings[$prop.Name] = $prop.Value }
+            if ($prop.Name -notin @('AutoSwitch', 'Hotkeys')) { $traySettings[$prop.Name] = $prop.Value }
         }
     }
     [pscustomobject]$traySettings | ConvertTo-Json | Set-Content -Path $SettingsFile -Encoding UTF8

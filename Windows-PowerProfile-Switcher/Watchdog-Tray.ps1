@@ -24,6 +24,11 @@ function Write-Log {
     try { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  [Watchdog] $Text" | Add-Content -Path $LogFile -Encoding UTF8 } catch { }
 }
 
+# Hat der Benutzer den Tray bewusst beendet (z.B. zum Spielen, damit kein
+# Hintergrundprozess laeuft), darf der Watchdog ihn NICHT wieder starten.
+$PauseFlag = Join-Path $StateDir 'tray-paused.flag'
+if (Test-Path $PauseFlag) { exit 0 }
+
 $running = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
            Where-Object { $_.CommandLine -like '*Start-Tray.ps1*' }
 

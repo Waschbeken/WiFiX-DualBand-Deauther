@@ -15,6 +15,13 @@
     bei Bedarf automatisch selbst).
 #>
 
+param(
+    # Installiert OHNE dauerhaft laufendes Tray-Icon und ohne dessen
+    # Ueberwachung. Profile laufen dann nur ueber die Verknuepfungen -
+    # sinnvoll, wenn ein Anti-Cheat-System Hintergrundprozesse bemaengelt.
+    [switch]$NoTray
+)
+
 $ErrorActionPreference = 'Stop'
 
 function Write-Info($Text) { Write-Host "[Install] $Text" -ForegroundColor Cyan }
@@ -24,9 +31,9 @@ $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Pri
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host 'Starte erneut mit Administratorrechten ...'
     $scriptPath = $MyInvocation.MyCommand.Path
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`""
-    )
+    $installArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`"")
+    if ($NoTray) { $installArgs += '-NoTray' }
+    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $installArgs
     exit
 }
 
@@ -42,7 +49,7 @@ foreach ($file in 'Set-PowerProfile.ps1', 'Start-Tray.ps1', 'PowerMetrics.ps1', 
                   'Test-PowerPerformance.ps1', 'Show-PowerSettings.ps1', 'PowerBench.ps1',
                   'Invoke-PowerCalibration.ps1', 'Start-PowerSetup.ps1', 'Watchdog-Tray.ps1',
                   'PowerDisplay.ps1', 'Reset-PowerProfile.ps1', 'Show-PowerStatus.ps1',
-                  'Backup-PowerConfig.ps1', 'Uninstall.ps1') {
+                  'Backup-PowerConfig.ps1', 'Set-PowerBackground.ps1', 'Uninstall.ps1') {
     Copy-Item -Path (Join-Path $SourceDir $file) -Destination (Join-Path $InstallDir $file) -Force
 }
 
@@ -112,8 +119,19 @@ $noGpuPrincipal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interact
 Register-ScheduledTask -TaskName $noGpuTaskName -Action $noGpuAction -Principal $noGpuPrincipal `
     -Settings $taskSettings -Description 'PowerProfile Switcher: Unterwegs ohne GPU-Umschaltung (automatischer Wechsel)' | Out-Null
 
-# --- Geplante Aufgabe fuer das Tray-Icon (startet bei Anmeldung, keine Admin-Rechte noetig) ---
+# --- Tray-Icon und Ueberwachung (entfallen bei -NoTray) ------------------
 $trayTaskName = 'PowerProfileSwitcher-Tray'
+if ($NoTray) {
+    Write-Info 'Installation ohne Hintergrunddienst (-NoTray): kein Tray-Icon, keine Ueberwachung.'
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*Start-Tray.ps1*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    foreach ($task in $trayTaskName, 'PowerProfileSwitcher-Watchdog') {
+        Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+
+if (-not $NoTray) {
 Write-Info "Richte Autostart fuer das Tray-Icon ein ..."
 
 # Falls bereits eine alte Tray-Instanz laeuft (z.B. bei erneuter
@@ -132,8 +150,10 @@ $trayPrincipal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interacti
 Register-ScheduledTask -TaskName $trayTaskName -Action $trayAction -Trigger $trayTrigger `
     -Principal $trayPrincipal -Settings $taskSettings `
     -Description 'PowerProfile Switcher: Tray-Icon bei Anmeldung starten' | Out-Null
+}
 
 # --- Watchdog: startet das Tray-Icon neu, falls der Prozess stirbt ------
+if (-not $NoTray) {
 $watchdogTaskName = 'PowerProfileSwitcher-Watchdog'
 Write-Info "Richte Ueberwachung '$watchdogTaskName' ein ..."
 Unregister-ScheduledTask -TaskName $watchdogTaskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -153,6 +173,7 @@ $watchdogPrincipal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Inter
 Register-ScheduledTask -TaskName $watchdogTaskName -Action $watchdogAction -Trigger $watchdogTriggers `
     -Principal $watchdogPrincipal -Settings $taskSettings `
     -Description 'PowerProfile Switcher: startet das Tray-Icon neu, falls es nicht mehr laeuft' | Out-Null
+}
 
 # --- Desktop-Verknuepfungen -------------------------------------------
 function New-ProfileShortcut {
@@ -181,11 +202,13 @@ foreach ($p in $ProfileDefinitions.Keys) {
 }
 
 # --- Tray-Icon direkt jetzt schon starten ------------------------------
-Write-Info 'Starte Tray-Icon ...'
-try {
-    Start-ScheduledTask -TaskName $trayTaskName
-} catch {
-    Write-Warning 'Tray-Icon konnte nicht sofort gestartet werden, wird aber ab der naechsten Anmeldung automatisch starten.'
+if (-not $NoTray) {
+    Write-Info 'Starte Tray-Icon ...'
+    try {
+        Start-ScheduledTask -TaskName $trayTaskName
+    } catch {
+        Write-Warning 'Tray-Icon konnte nicht sofort gestartet werden, wird aber ab der naechsten Anmeldung automatisch starten.'
+    }
 }
 
 Write-Host ''

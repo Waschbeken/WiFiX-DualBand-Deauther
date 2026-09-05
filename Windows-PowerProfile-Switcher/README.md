@@ -95,6 +95,56 @@ ist deutlich belastbarer als die kurze Messung direkt nach dem
 Umschalten, weil auch normale Arbeitslast mit einfließt. Die Datei wird
 automatisch gekürzt, sobald sie 2 MB überschreitet.
 
+## Anti-Cheat: wenn Spiele nicht mehr starten
+
+**Das kann passieren, und es liegt an der Bauweise der App.** Kernelnahe
+Anti-Cheat-Systeme (Vanguard, Easy Anti-Cheat, BattlEye) stufen mehrere
+Dinge als verdächtig ein, die diese App tut — nicht weil sie etwas Böses
+tut, sondern weil Schadsoftware genauso aussieht:
+
+| Was die App tut | Warum das auffällt |
+|---|---|
+| Dauerhaft ein **verstecktes PowerShell-Fenster** (`-WindowStyle Hidden -ExecutionPolicy Bypass`) | Die klassische Signatur dateiloser Schadsoftware |
+| **Globale Hotkeys** (`RegisterHotKey`) | Typisch für Makros und Triggerbots |
+| Geplante Aufgaben **mit erhöhten Rechten**, ausgelöst aus einem normalen Prozess | Bekanntes Muster zur UAC-Umgehung |
+| **C#-Code zur Laufzeit übersetzen** (`Add-Type`) | Sieht aus wie Nachladen von Schadcode |
+| Fremde Prozesse beenden, Geräte deaktivieren, Anzeige umstellen | Manipulation am System |
+
+**Sofort wieder spielen können — drei Wege, vom mildesten zum gründlichsten:**
+
+1. **Tray-Menü → „Beenden fuers Spielen"**: Beendet das Icon, und die
+   Überwachung startet es *nicht* wieder (erst bei der nächsten
+   Anmeldung). Damit läuft während des Spiels kein Prozess der App.
+2. **Tray-Menü → „Hintergrunddienst dauerhaft abschalten"**: Deaktiviert
+   Tray und Überwachung als geplante Aufgaben. Profile schaltest du
+   weiterhin per Desktop-Verknüpfung um — dabei läuft nur für ein paar
+   Sekunden etwas. Wieder anschalten:
+   `Set-PowerBackground.ps1 -Action Enable`
+3. **Komplett entfernen**: `Uninstall.ps1` als Administrator.
+
+**Ab Werk geändert (Version 1.9.0):** Die globalen Hotkeys sind jetzt
+**standardmäßig aus** — sie waren der wahrscheinlichste Auslöser und
+lassen sich im Einstellungsfenster wieder einschalten, wenn dein
+Anti-Cheat damit klarkommt.
+
+**Installation ganz ohne Hintergrunddienst:**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Install.ps1 -NoTray
+```
+
+Dann gibt es nur die Profil-Verknüpfungen — kein Tray-Icon, keine
+Überwachung, kein dauerhafter Prozess. Es entfallen damit auch
+Watt-Anzeige, Protokoll, Standby-Auswertung und automatisches Umschalten.
+
+**Ehrlich gesagt:** Ich kann nicht bestimmen, welcher Punkt bei deinem
+Spiel konkret angeschlagen hat, und ich kann auch nicht garantieren, dass
+eine bestimmte Einstellung reicht. Ein kernelnahes Anti-Cheat darf jeden
+versteckten Skript-Prozess blockieren. **Der verlässliche Weg ist Weg 1
+oder 2: vor dem Spielen Profil wählen, Hintergrunddienst aus, dann
+starten.** Profile bleiben aktiv, auch wenn nichts von der App läuft —
+die Einstellungen stehen in Windows selbst, nicht im Programm.
+
 ## Notfall-Reset & Sicherung
 
 Tray-Menü → **„Alles zuruecksetzen (Notfall)"**. Dreht in einem Rutsch
@@ -297,7 +347,7 @@ du, läuft das mitgelieferte `Install.ps1` (einmal UAC-Abfrage), danach
 startet das Tray-Icon neu. Ohne Bestätigung passiert nichts, und
 heruntergeladene Dateien werden anschließend wieder gelöscht.
 
-Aktuelle Version: **1.8.0**
+Aktuelle Version: **1.9.0**
 
 ## Profil-Laufzeit im Menü
 
@@ -355,6 +405,10 @@ GPU wirklich abschalten, wähle „Unterwegs" einmal von Hand.
 | `Strg+Alt+3` | Unterwegs |
 | `Strg+Alt+4` | Video / Streaming |
 | `Strg+Alt+P` | nächstes Profil (durchschalten) |
+
+Die Hotkeys sind **ab Werk ausgeschaltet**, weil global registrierte
+Tastenkombinationen von Anti-Cheat-Systemen als verdächtig gelten. Im
+Einstellungsfenster lassen sie sich einschalten.
 
 Ist eine Kombination schon von einem anderen Programm belegt, wird sie
 übersprungen und das in `tray.log` vermerkt – die übrigen funktionieren

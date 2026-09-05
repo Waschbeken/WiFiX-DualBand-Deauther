@@ -32,6 +32,7 @@ $SettingsFile= Join-Path $StateDir 'settings.json'
 $LogCsv      = Join-Path $StateDir 'power-log.csv'
 $HealthCsv   = Join-Path $StateDir 'battery-health.csv'
 $StandbyCsv  = Join-Path $StateDir 'standby-log.csv'
+$PauseFlag   = Join-Path $StateDir 'tray-paused.flag'
 $LogFile     = Join-Path $StateDir 'tray.log'
 if (-not (Test-Path $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
 
@@ -139,7 +140,7 @@ function Get-ProfileRuntimeText {
 
 # --- Einstellungen (persistent) -----------------------------------------
 function Load-Settings {
-    $defaults = @{ AutoSwitch = $false }
+    $defaults = @{ AutoSwitch = $false; Hotkeys = $false }
     if (Test-Path $SettingsFile) {
         try {
             $loaded = Get-Content $SettingsFile -Raw | ConvertFrom-Json
@@ -154,6 +155,13 @@ function Save-Settings {
 }
 
 $Settings = Load-Settings
+
+# Der Tray laeuft wieder - eine frueher gesetzte Pause ist damit erledigt.
+Remove-Item $PauseFlag -Force -ErrorAction SilentlyContinue
+
+# Globale Hotkeys sind ab Werk AUS (siehe Abschnitt weiter unten).
+$hotkeysWanted = $false
+try { $hotkeysWanted = [bool]$Settings.Hotkeys } catch { }
 
 # --- Farbige Punkt-Icons je Profil erzeugen (kein externes .ico noetig) ---
 function New-DotIcon {
@@ -639,19 +647,19 @@ $itemRuntime.Add_Click({ Show-BatteryDetails })
 $menu.Items.Add('-') | Out-Null
 
 $itemGaming = $menu.Items.Add("$(E 0x1F3AE)  Gaming (Hoechstleistung)")
-$itemGaming.ShortcutKeyDisplayString = 'Strg+Alt+1'
+if ($hotkeysWanted) { $itemGaming.ShortcutKeyDisplayString = 'Strg+Alt+1' }
 $itemGaming.Add_Click({ Invoke-Profile -Name 'Gaming' })
 
 $itemBalanced = $menu.Items.Add("$(E 0x2696)  Ausgeglichen")
-$itemBalanced.ShortcutKeyDisplayString = 'Strg+Alt+2'
+if ($hotkeysWanted) { $itemBalanced.ShortcutKeyDisplayString = 'Strg+Alt+2' }
 $itemBalanced.Add_Click({ Invoke-Profile -Name 'Balanced' })
 
 $itemTravel = $menu.Items.Add("$(E 0x1F50B)  Unterwegs (Akku sparen)")
-$itemTravel.ShortcutKeyDisplayString = 'Strg+Alt+3'
+if ($hotkeysWanted) { $itemTravel.ShortcutKeyDisplayString = 'Strg+Alt+3' }
 $itemTravel.Add_Click({ Invoke-Profile -Name 'Travel' })
 
 $itemVideo = $menu.Items.Add("$(E 0x1F3AC)  Video / Streaming")
-$itemVideo.ShortcutKeyDisplayString = 'Strg+Alt+4'
+if ($hotkeysWanted) { $itemVideo.ShortcutKeyDisplayString = 'Strg+Alt+4' }
 $itemVideo.Add_Click({ Invoke-Profile -Name 'Video' })
 
 $itemBack = $menu.Items.Add("$(E 0x21A9)  Zurueck zum vorherigen Profil")
@@ -801,13 +809,47 @@ if ($xmgCcExe) {
 
 $menu.Items.Add('-') | Out-Null
 
-$itemExit = $menu.Items.Add('Beenden')
-$itemExit.Add_Click({
+function Stop-Tray {
+    param([switch]$KeepPaused)
+    try {
+        if ($KeepPaused) {
+            # Markierung setzen, damit der Watchdog den Tray nicht sofort
+            # wieder startet. Bei der naechsten Anmeldung laeuft er normal.
+            (Get-Date).ToString('o') | Set-Content -Path $PauseFlag -Encoding UTF8
+            Write-TrayLog 'Tray beendet und pausiert (kein Hintergrundprozess bis zur naechsten Anmeldung).'
+        } else {
+            Write-TrayLog 'Tray beendet.'
+        }
+    } catch { }
     if ($script:hotkeyWindow) { try { $script:hotkeyWindow.Dispose() } catch { } }
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
     [System.Windows.Forms.Application]::Exit()
+}
+
+$itemNoBackground = $menu.Items.Add("$(E 0x1F6E1)  Hintergrunddienst dauerhaft abschalten ...")
+$itemNoBackground.Add_Click({
+    $bgScript = Join-Path $ScriptDir 'Set-PowerBackground.ps1'
+    if (Test-Path $bgScript) {
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+            '-File', "`"$bgScript`"", '-Action', 'Disable'
+        )
+    }
+}.GetNewClosure())
+
+$itemExitForGame = $menu.Items.Add("$(E 0x1F3AE)  Beenden fuers Spielen (kein Hintergrundprozess)")
+$itemExitForGame.Add_Click({
+    [System.Windows.Forms.MessageBox]::Show(
+        "Das Tray-Icon wird beendet und startet auch nicht automatisch neu - erst wieder bei der naechsten Anmeldung.`n`nDamit laeuft waehrend des Spielens kein Hintergrundprozess dieser App, was Anti-Cheat-Systeme stoeren kann.`n`nProfile umschalten geht weiterhin ueber die Verknuepfungen auf dem Desktop - am besten VOR dem Spielstart.",
+        'PowerProfile Switcher',
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+    Stop-Tray -KeepPaused
 })
+
+$itemExit = $menu.Items.Add('Beenden')
+$itemExit.Add_Click({ Stop-Tray -KeepPaused })
 
 $notifyIcon.ContextMenuStrip = $menu
 $notifyIcon.Add_MouseUp({
@@ -904,9 +946,14 @@ function Update-TrayState {
     }
 }
 
-# --- Globale Hotkeys (Strg+Alt+1/2/3) ------------------------------------
+# --- Globale Hotkeys (standardmaessig AUS) --------------------------------
+# Global registrierte Tastenkombinationen sind ein typisches Merkmal von
+# Cheat-Software (Makros, Triggerbots) und werden von Anti-Cheat-Systemen
+# entsprechend beaeugt. Deshalb sind sie hier abschaltbar und ab Werk aus.
 $hotkeyWindow = $null
+
 try {
+    if (-not $hotkeysWanted) { throw 'Hotkeys sind deaktiviert.' }
     if (-not ('PowerProfileSwitcher.HotkeyWindow' -as [type])) {
         Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
 using System;
@@ -991,10 +1038,8 @@ namespace PowerProfileSwitcher {
             Add-Content -Path $LogFile -Encoding UTF8
     }
 } catch {
-    try {
-        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  Hotkeys nicht verfuegbar: $_" |
-            Add-Content -Path $LogFile -Encoding UTF8
-    } catch { }
+    if ($hotkeysWanted) { Write-TrayLog "Hotkeys nicht verfuegbar: $_" }
+    else { Write-TrayLog 'Hotkeys sind ausgeschaltet (Einstellungen -> Globale Hotkeys).' }
 }
 
 # Regelmaessiger Herzschlag (alle 15s): Icon sichtbar halten, Messpunkt
